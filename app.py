@@ -1,14 +1,11 @@
 import io
-import math
 from pathlib import Path
-
 import cv2
 import numpy as np
 import pydicom
 import streamlit as st
 from PIL import Image
 from skimage.restoration import denoise_tv_chambolle
-from streamlit_drawable_canvas import st_canvas
 
 
 # ============================================================
@@ -24,9 +21,7 @@ st.set_page_config(
 st.title("🦷 Dental Image Processor")
 
 st.caption(
-    "Contrast & Edge Enhancement • Spatial Filtering / Masking • "
-    "Noise Reduction / Smoothing • Endo Preset • "
-    "Perio / Bone Preset • Endo Sharp"
+    "Επεξεργασία και βελτίωση οδοντιατρικών ακτινογραφιών"
 )
 
 
@@ -34,6 +29,1227 @@ st.caption(
 # IMAGE NORMALIZATION
 # ============================================================
 
+def normalize_to_uint8(array):
+    """
+    Convert arbitrary grayscale data to uint8.
+    """
+
+    array = np.asarray(
+        array,
+        dtype=np.float32,
+    )
+
+    finite = np.isfinite(array)
+
+    if not np.any(finite):
+        return np.zeros(
+            array.shape,
+            dtype=np.uint8,
+        )
+
+    minimum = np.min(
+        array[finite]
+    )
+
+    maximum = np.max(
+        array[finite]
+    )
+
+    if maximum <= minimum:
+        return np.zeros(
+            array.shape,
+            dtype=np.uint8,
+        )
+
+    normalized = (
+        (array - minimum)
+        / (maximum - minimum)
+        * 255.0
+    )
+
+    return np.clip(
+        normalized,
+        0,
+        255,
+    ).astype(
+        np.uint8
+    )
+
+
+# ============================================================
+# DICOM LOADING
+# ============================================================
+
+def load_dicom(file):
+
+    ds = pydicom.dcmread(
+        file,
+        force=True,
+    )
+
+    # --------------------------------------------------------
+    # Read pixel data
+    # --------------------------------------------------------
+
+    try:
+
+        image = ds.pixel_array.astype(
+            np.float32
+        )
+
+    except Exception as error:
+
+        raise RuntimeError(
+            "This DICOM contains compressed pixel data "
+            "that could not be decoded.\n\n"
+            "If this is a JPEG Lossless DICOM, additional "
+            "DICOM decoding libraries may be required.\n\n"
+            f"Original error:\n{error}"
+        ) from error
+
+    # --------------------------------------------------------
+    # Multi-frame DICOM
+    # --------------------------------------------------------
+
+    if image.ndim > 2:
+
+        image = image[0]
+
+    # --------------------------------------------------------
+    # Rescale slope/intercept
+    # --------------------------------------------------------
+
+    slope = float(
+        getattr(
+            ds,
+            "RescaleSlope",
+            1.0,
+        )
+    )
+
+    intercept = float(
+        getattr(
+            ds,
+            "RescaleIntercept",
+            0.0,
+        )
+    )
+
+    image = (
+        image * slope
+        + intercept
+    )
+
+    # --------------------------------------------------------
+    # MONOCHROME1
+    # --------------------------------------------------------
+
+    photometric = str(
+        getattr(
+            ds,
+            "PhotometricInterpretation",
+            "MONOCHROME2",
+        )
+    )
+
+    if photometric == "MONOCHROME1":
+
+        image = (
+            np.max(image)
+            - image
+        )
+
+    # --------------------------------------------------------
+    # DICOM Window Center / Width
+    # --------------------------------------------------------
+
+    window_center = getattr(
+        ds,
+        "WindowCenter",
+        None,
+    )
+
+    window_width = getattr(
+        ds,
+        "WindowWidth",
+        None,
+    )
+
+    if (
+        window_center is not None
+        and window_width is not None
+    ):
+
+        try:
+
+            if hasattr(
+                window_center,
+                "__len__",
+            ):
+                center = float(
+                    window_center[0]
+                )
+            else:
+                center = float(
+                    window_center
+                )
+
+            if hasattr(
+                window_width,
+                "__len__",
+            ):
+                width_value = float(
+                    window_width[0]
+                )
+            else:
+                width_value = float(
+                    window_width
+                )
+
+            if width_value > 1:
+
+                low = (
+                    center
+                    - width_value / 2
+                )
+
+                high = (
+                    center
+                    + width_value / 2
+                )
+
+                image = np.clip(
+                    image,
+                    low,
+                    high,
+                )
+
+        except Exception:
+            pass
+
+    # --------------------------------------------------------
+    # Normalize
+    # --------------------------------------------------------
+
+    image = normalize_to_uint8(
+        image
+    )
+
+    return image, ds
+
+
+# ============================================================
+# REGULAR IMAGE LOADING
+# ============================================================
+
+def load_regular_image(file):
+
+    data = file.read()
+
+    image = Image.open(
+        io.BytesIO(data)
+    ).convert("L")
+
+    return (
+        np.array(image),
+        None,
+    )
+
+
+# ============================================================
+# GENERAL IMAGE LOADING
+# ============================================================
+
+def load_image(file):
+
+    filename = file.name.lower()
+
+    if filename.endswith(".dcm"):
+
+        return load_dicom(file)
+
+    try:
+
+        file.seek(0)
+
+        return load_regular_image(file)
+
+    except Exception:
+
+        file.seek(0)
+
+        return load_dicom(file)
+
+
+# ============================================================
+# CLAHE
+# ============================================================
+
+def apply_clahe(
+    image,
+    clip_limit=2.0,
+    tile_size=8,
+):
+
+    if image.dtype != np.uint8:
+
+        image = normalize_to_uint8(
+            image
+        )
+
+    clahe = cv2.createCLAHE(
+        clipLimit=float(
+            clip_limit
+        ),
+        tileGridSize=(
+            int(tile_size),
+            int(tile_size),
+        ),
+    )
+
+    return clahe.apply(
+        image
+    )
+
+
+# ============================================================
+# UNSHARP MASKING
+# ============================================================
+
+def apply_usm(
+    image,
+    sigma=1.0,
+    amount=1.0,
+    threshold=5.0,
+):
+
+    if image.dtype != np.uint8:
+
+        image = normalize_to_uint8(
+            image
+        )
+
+    # Gaussian blur
+    blurred = cv2.GaussianBlur(
+        image,
+        (0, 0),
+        sigmaX=float(sigma),
+        sigmaY=float(sigma),
+    )
+
+    # High-frequency mask
+    mask = (
+        image.astype(np.float32)
+        -
+        blurred.astype(np.float32)
+    )
+
+    # Threshold
+    if float(threshold) > 0:
+
+        mask[
+            np.abs(mask)
+            < float(threshold)
+        ] = 0.0
+
+    # Sharpen
+    sharpened = (
+        image.astype(np.float32)
+        +
+        float(amount)
+        * mask
+    )
+
+    return np.clip(
+        sharpened,
+        0,
+        255,
+    ).astype(
+        np.uint8
+    )
+
+
+# ============================================================
+# STANDARD / CONVOLUTION MASKING
+# ============================================================
+
+def apply_standard_masking(
+    image,
+    strength=1.0,
+):
+
+    if image.dtype != np.uint8:
+
+        image = normalize_to_uint8(
+            image
+        )
+
+    # Standard sharpening / convolution kernel
+    sharpening_kernel = np.array(
+        [
+            [0, -1, 0],
+            [-1, 5, -1],
+            [0, -1, 0],
+        ],
+        dtype=np.float32,
+    )
+
+    # Identity matrix
+    identity = np.zeros(
+        (3, 3),
+        dtype=np.float32,
+    )
+
+    identity[1, 1] = 1.0
+
+    # Adjustable strength
+    kernel = (
+        identity
+        +
+        float(strength)
+        *
+        (
+            sharpening_kernel
+            -
+            identity
+        )
+    )
+
+    result = cv2.filter2D(
+        image,
+        -1,
+        kernel,
+    )
+
+    return np.clip(
+        result,
+        0,
+        255,
+    ).astype(
+        np.uint8
+    )
+
+
+# ============================================================
+# MEDIAN FILTER
+# ============================================================
+
+def apply_median_filter(
+    image,
+    kernel_size=3,
+):
+
+    if image.dtype != np.uint8:
+
+        image = normalize_to_uint8(
+            image
+        )
+
+    kernel_size = int(
+        kernel_size
+    )
+
+    if kernel_size < 3:
+        kernel_size = 3
+
+    if kernel_size % 2 == 0:
+        kernel_size += 1
+
+    return cv2.medianBlur(
+        image,
+        kernel_size,
+    )
+
+
+# ============================================================
+# TV-CLAHE
+#
+# THIS IS THE ORIGINAL TV-CLAHE IMPLEMENTATION
+# FROM THE PREVIOUS APP.
+#
+# DO NOT CHANGE THE ALGORITHM OR PARAMETERS.
+# ============================================================
+
+def tv_clahe(image):
+
+    """
+    Original TV-CLAHE implementation.
+
+    Workflow:
+        1. CLAHE
+        2. Spatial normalization
+        3. Total Variation denoising
+           using Chambolle's algorithm
+        4. Second CLAHE
+
+    Fixed parameters:
+        CLAHE clip limit = 1.5
+        CLAHE tile grid = 8 x 8
+        Gaussian sigma = 50
+        TV weight = 0.1
+        TV floor = 5
+    """
+
+    # --------------------------------------------------------
+    # Make sure the input is uint8
+    # --------------------------------------------------------
+
+    if image.dtype != np.uint8:
+
+        image = normalize_to_uint8(
+            image
+        )
+
+    # --------------------------------------------------------
+    # Fixed parameters
+    # --------------------------------------------------------
+
+    tv_clip_limit = 1.5
+    tv_tile_grid = (8, 8)
+    tv_sigma = 50.0
+    tv_weight = 0.1
+    tv_floor = 5.0
+
+    clahe = cv2.createCLAHE(
+        clipLimit=tv_clip_limit,
+        tileGridSize=tv_tile_grid
+    )
+
+    # --------------------------------------------------------
+    # 1. FIRST CLAHE
+    # --------------------------------------------------------
+
+    first_clahe = clahe.apply(
+        image
+    )
+
+    # --------------------------------------------------------
+    # 2. SPATIAL NORMALIZATION
+    #
+    # Divide the CLAHE image by a large-scale
+    # Gaussian-blurred version of itself.
+    #
+    # The denominator is floored at 5.
+    # --------------------------------------------------------
+
+    image_float = first_clahe.astype(
+        np.float32
+    )
+
+    blurred = cv2.GaussianBlur(
+        image_float,
+        (0, 0),
+        sigmaX=tv_sigma,
+        sigmaY=tv_sigma
+    )
+
+    denominator = np.maximum(
+        blurred,
+        tv_floor
+    )
+
+    normalized = (
+        image_float
+        /
+        denominator
+    )
+
+    # --------------------------------------------------------
+    # Rescale normalized image to [0, 1]
+    # --------------------------------------------------------
+
+    norm_min = float(
+        np.min(normalized)
+    )
+
+    norm_max = float(
+        np.max(normalized)
+    )
+
+    if norm_max > norm_min:
+
+        normalized = (
+            (normalized - norm_min)
+            /
+            (norm_max - norm_min)
+        )
+
+    else:
+
+        normalized = np.zeros_like(
+            normalized,
+            dtype=np.float32
+        )
+
+    normalized = np.clip(
+        normalized,
+        0.0,
+        1.0
+    ).astype(
+        np.float32
+    )
+
+    # --------------------------------------------------------
+    # 3. TOTAL VARIATION DENOISING
+    #
+    # Chambolle algorithm
+    # weight = 0.1
+    # --------------------------------------------------------
+
+    tv_denoised = denoise_tv_chambolle(
+        normalized,
+        weight=tv_weight,
+        channel_axis=None
+    )
+
+    tv_denoised = np.clip(
+        tv_denoised * 255.0,
+        0,
+        255
+    ).astype(
+        np.uint8
+    )
+
+    # --------------------------------------------------------
+    # 4. SECOND CLAHE
+    # --------------------------------------------------------
+
+    final_image = clahe.apply(
+        tv_denoised
+    )
+
+    return final_image
+
+
+# ============================================================
+# PIPELINE 1
+# CONTRAST & EDGE ENHANCEMENT
+# ============================================================
+
+def contrast_edge_enhancement(
+    image
+):
+
+    # CLAHE
+    clahe_image = apply_clahe(
+        image,
+        clip_limit=2.0,
+        tile_size=8,
+    )
+
+    # USM
+    final_image = apply_usm(
+        clahe_image,
+        sigma=1.0,
+        amount=1.0,
+        threshold=5.0,
+    )
+
+    return final_image
+
+
+# ============================================================
+# PIPELINE 2
+# SPATIAL FILTERING / MASKING
+# ============================================================
+
+def spatial_filtering_masking(
+    image
+):
+
+    final_image = apply_standard_masking(
+        image,
+        strength=1.0,
+    )
+
+    return final_image
+
+
+# ============================================================
+# PIPELINE 3
+# NOISE REDUCTION / SMOOTHING
+# ============================================================
+
+def noise_reduction_smoothing(
+    image
+):
+
+    final_image = apply_median_filter(
+        image,
+        kernel_size=3,
+    )
+
+    return final_image
+
+
+# ============================================================
+# PIPELINE 4
+# ENDO PRESET
+# ============================================================
+
+def endo_preset(
+    image
+):
+
+    # --------------------------------------------------------
+    # Endodontic preset
+    #
+    # Recommended:
+    # Sigma     = 0.80 - 1.20
+    # Amount    = 2.00 - 3.00
+    # Threshold = 1.00 - 2.00
+    #
+    # Default midpoint:
+    # Sigma     = 1.00
+    # Amount    = 2.50
+    # Threshold = 1.50
+    # --------------------------------------------------------
+
+    clahe_image = apply_clahe(
+        image,
+        clip_limit=2.0,
+        tile_size=8,
+    )
+
+    final_image = apply_usm(
+        clahe_image,
+        sigma=1.00,
+        amount=2.50,
+        threshold=1.50,
+    )
+
+    return final_image
+
+
+# ============================================================
+# PIPELINE 5
+# PERIO / BONE PRESET
+# ============================================================
+
+def perio_bone_preset(
+    image
+):
+
+    # --------------------------------------------------------
+    # Perio / Bone preset
+    #
+    # Recommended:
+    # Sigma     = 1.50 - 2.00
+    # Amount    = 1.00 - 1.50
+    # Threshold = 3.00 - 4.00
+    #
+    # Default midpoint:
+    # Sigma     = 1.75
+    # Amount    = 1.25
+    # Threshold = 3.50
+    # --------------------------------------------------------
+
+    clahe_image = apply_clahe(
+        image,
+        clip_limit=2.0,
+        tile_size=8,
+    )
+
+    final_image = apply_usm(
+        clahe_image,
+        sigma=1.75,
+        amount=1.25,
+        threshold=3.50,
+    )
+
+    return final_image
+
+
+# ============================================================
+# PIPELINE 6
+# ENDO SHARP
+#
+# ORIGINAL TV-CLAHE
+# ============================================================
+
+def endo_sharp(
+    image
+):
+
+    return tv_clahe(
+        image
+    )
+
+
+# ============================================================
+# PIPELINE DESCRIPTIONS
+# ============================================================
+
+PIPELINE_DESCRIPTIONS = {
+
+    "Contrast & Edge Enhancement": (
+        "Ενισχύει την τοπική αντίθεση και στη συνέχεια "
+        "τονίζει τις ακμές της εικόνας. Το CLAHE βοηθά "
+        "στην ανάδειξη λεπτομερειών σε περιοχές με "
+        "διαφορετική φωτεινότητα, ενώ το Unsharp Masking "
+        "κάνει τις ανατομικές ακμές και τις λεπτές "
+        "δομές πιο ευδιάκριτες."
+    ),
+
+    "Spatial Filtering / Masking": (
+        "Χρησιμοποιεί convolution masking για την ενίσχυση "
+        "των ακμών και των τοπικών μεταβολών έντασης. "
+        "Μπορεί να κάνει τις λεπτές γραμμές, τα όρια "
+        "των δομών και τις ακτινοσκιερές περιοχές "
+        "πιο ευδιάκριτα."
+    ),
+
+    "Noise Reduction / Smoothing": (
+        "Το Median Filter χρησιμοποιείται για τη μείωση "
+        "μικρού τοπικού θορύβου και μεμονωμένων ακραίων "
+        "pixel, διατηρώντας παράλληλα σχετικά καλά "
+        "τις σημαντικές ακμές της εικόνας."
+    ),
+
+    "Endo Preset": (
+        "Ειδικά ρυθμισμένο για ενδοδοντική απεικόνιση. "
+        "Στόχος είναι η καλύτερη ανάδειξη των "
+        "ενδοδοντικών εργαλείων, του ακρορριζίου και "
+        "των στενών ριζικών σωλήνων. Χρησιμοποιεί "
+        "ισχυρότερο Unsharp Masking με χαμηλό threshold "
+        "ώστε να αναδεικνύονται ακόμη και λεπτές "
+        "διαφορές πυκνότητας."
+    ),
+
+    "Perio / Bone Preset": (
+        "Ειδικά ρυθμισμένο για περιοδοντολογία και "
+        "απεικόνιση οστού. Στόχος είναι η ανάδειξη της "
+        "αρχιτεκτονικής του σπογγώδους οστού και της "
+        "περιοδοντικής σχισμής, με πιο ήπια όξυνση ώστε "
+        "να περιορίζεται η υπερβολική ενίσχυση "
+        "ψηφιακού θορύβου."
+    ),
+
+    "Endo Sharp": (
+        "Η αρχική TV-CLAHE μέθοδος του προηγούμενου "
+        "εργαλείου. Συνδυάζει CLAHE, χωρική κανονικοποίηση, "
+        "Total Variation denoising με τον αλγόριθμο "
+        "Chambolle και δεύτερο CLAHE. Στόχος είναι η "
+        "βελτίωση της αντίθεσης και η μείωση ανεπιθύμητου "
+        "θορύβου, διατηρώντας παράλληλα τις σημαντικές "
+        "ανατομικές ακμές."
+    ),
+}
+
+
+# ============================================================
+# SESSION STATE
+# ============================================================
+
+if "image" not in st.session_state:
+
+    st.session_state.image = None
+
+
+if "filename" not in st.session_state:
+
+    st.session_state.filename = None
+
+
+if "dicom" not in st.session_state:
+
+    st.session_state.dicom = None
+
+
+if "file_signature" not in st.session_state:
+
+    st.session_state.file_signature = None
+
+
+# ============================================================
+# SIDEBAR
+# ============================================================
+
+with st.sidebar:
+
+    st.header("📂 Εικόνα")
+
+    uploaded_file = st.file_uploader(
+        "Σύρετε εδώ την οδοντιατρική εικόνα",
+        type=[
+            "dcm",
+            "png",
+            "jpg",
+            "jpeg",
+            "tif",
+            "tiff",
+            "bmp",
+        ],
+    )
+
+    # --------------------------------------------------------
+    # Load image
+    # --------------------------------------------------------
+
+    if uploaded_file is not None:
+
+        file_signature = (
+            uploaded_file.name,
+            uploaded_file.size,
+        )
+
+        if (
+            st.session_state.file_signature
+            != file_signature
+        ):
+
+            try:
+
+                (
+                    image,
+                    dicom,
+                ) = load_image(
+                    uploaded_file
+                )
+
+                st.session_state.image = (
+                    image
+                )
+
+                st.session_state.filename = (
+                    uploaded_file.name
+                )
+
+                st.session_state.dicom = (
+                    dicom
+                )
+
+                st.session_state.file_signature = (
+                    file_signature
+                )
+
+                st.success(
+                    f"Φορτώθηκε: "
+                    f"{uploaded_file.name}"
+                )
+
+            except Exception as error:
+
+                st.error(
+                    "Δεν ήταν δυνατή η φόρτωση της εικόνας."
+                )
+
+                st.code(
+                    str(error)
+                )
+
+    # --------------------------------------------------------
+    # Pipeline selection
+    # --------------------------------------------------------
+
+    if st.session_state.image is not None:
+
+        st.divider()
+
+        st.header(
+            "⚙️ Pipeline"
+        )
+
+        pipeline = st.radio(
+            "Επιλέξτε μέθοδο:",
+            [
+                "Contrast & Edge Enhancement",
+                "Spatial Filtering / Masking",
+                "Noise Reduction / Smoothing",
+                "Endo Preset",
+                "Perio / Bone Preset",
+                "Endo Sharp",
+            ],
+        )
+
+
+# ============================================================
+# STOP IF NO IMAGE
+# ============================================================
+
+if st.session_state.image is None:
+
+    st.info(
+        "👆 Ανεβάστε μια οδοντιατρική εικόνα "
+        "από το πλαϊνό μενού."
+    )
+
+    st.stop()
+
+
+# ============================================================
+# PROCESS IMAGE
+# ============================================================
+
+original = st.session_state.image
+
+
+if pipeline == "Contrast & Edge Enhancement":
+
+    processed = contrast_edge_enhancement(
+        original
+    )
+
+
+elif pipeline == "Spatial Filtering / Masking":
+
+    processed = spatial_filtering_masking(
+        original
+    )
+
+
+elif pipeline == "Noise Reduction / Smoothing":
+
+    processed = noise_reduction_smoothing(
+        original
+    )
+
+
+elif pipeline == "Endo Preset":
+
+    processed = endo_preset(
+        original
+    )
+
+
+elif pipeline == "Perio / Bone Preset":
+
+    processed = perio_bone_preset(
+        original
+    )
+
+
+elif pipeline == "Endo Sharp":
+
+    processed = endo_sharp(
+        original
+    )
+
+
+else:
+
+    processed = original.copy()
+
+
+# ============================================================
+# DISPLAY SCALING
+# ============================================================
+
+height, width = (
+    original.shape[:2]
+)
+
+MAX_WIDTH = 1000
+
+if width > MAX_WIDTH:
+
+    scale = (
+        MAX_WIDTH
+        /
+        float(width)
+    )
+
+else:
+
+    scale = 1.0
+
+
+display_width = max(
+    1,
+    int(
+        round(
+            width * scale
+        )
+    ),
+)
+
+display_height = max(
+    1,
+    int(
+        round(
+            height * scale
+        )
+    ),
+)
+
+
+original_display = cv2.resize(
+    original,
+    (
+        display_width,
+        display_height,
+    ),
+    interpolation=cv2.INTER_AREA,
+)
+
+
+processed_display = cv2.resize(
+    processed,
+    (
+        display_width,
+        display_height,
+    ),
+    interpolation=cv2.INTER_AREA,
+)
+
+
+# ============================================================
+# PIPELINE TITLE
+# ============================================================
+
+st.header(
+    pipeline
+)
+
+
+# ============================================================
+# GREEK EXPLANATION
+# ============================================================
+
+st.info(
+    PIPELINE_DESCRIPTIONS[
+        pipeline
+    ]
+)
+
+
+# ============================================================
+# IMAGE COMPARISON
+# ============================================================
+
+left, right = st.columns(
+    2
+)
+
+
+with left:
+
+    st.subheader(
+        "Original"
+    )
+
+    st.image(
+        original_display,
+        use_container_width=True,
+    )
+
+
+with right:
+
+    st.subheader(
+        "Processed"
+    )
+
+    st.image(
+        processed_display,
+        use_container_width=True,
+    )
+
+
+# ============================================================
+# DOWNLOAD
+# ============================================================
+
+st.divider()
+
+output = io.BytesIO()
+
+Image.fromarray(
+    processed
+).save(
+    output,
+    format="PNG",
+)
+
+pipeline_filename = (
+    pipeline
+    .lower()
+    .replace(
+        " ",
+        "_"
+    )
+    .replace(
+        "/",
+        "_"
+    )
+    .replace(
+        "&",
+        "and"
+    )
+)
+
+st.download_button(
+    "⬇️ Λήψη επεξεργασμένης εικόνας",
+    output.getvalue(),
+    file_name=(
+        f"{Path(st.session_state.filename).stem}"
+        f"_{pipeline_filename}.png"
+    ),
+    mime="image/png",
+)
+
+
+# ============================================================
+# DICOM INFORMATION
+# ============================================================
+
+if st.session_state.dicom is not None:
+
+    st.divider()
+
+    with st.expander(
+        "🏥 DICOM πληροφορίες"
+    ):
+
+        ds = st.session_state.dicom
+
+        fields = [
+            "PatientID",
+            "StudyDate",
+            "Modality",
+            "Rows",
+            "Columns",
+            "BitsAllocated",
+            "BitsStored",
+            "HighBit",
+            "PixelRepresentation",
+            "PhotometricInterpretation",
+            "PixelSpacing",
+            "SliceThickness",
+            "WindowCenter",
+            "WindowWidth",
+            "RescaleSlope",
+            "RescaleIntercept",
+            "SamplesPerPixel",
+            "PlanarConfiguration",
+            "NumberOfFrames",
+        ]
+
+        metadata = {}
+
+        for field in fields:
+
+            if hasattr(
+                ds,
+                field,
+            ):
+
+                metadata[field] = str(
+                    getattr(
+                        ds,
+                        field,
+                    )
+                )
+
+        st.json(
+            metadata
+        )
+
+        st.caption(
+            "Η αρχική εικόνα DICOM δεν τροποποιείται. "
+            "Η επεξεργασία εφαρμόζεται σε παράγωγη εικόνα."
+        )
+```
 def normalize_to_uint8(array):
     """
     Convert arbitrary grayscale data to uint8.
