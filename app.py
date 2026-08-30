@@ -441,85 +441,50 @@ def apply_median_filter(
 #
 # MODIFIED TO REDUCE BLURRING
 # ============================================================
-
 def tv_clahe(image):
 
-    """
-    TV-CLAHE / Endo Sharp.
-
-    Workflow:
-
-        Original
-            ↓
-        CLAHE
-            ↓
-        Spatial normalization
-            ↓
-        Mild Total Variation denoising
-            ↓
-        CLAHE
-            ↓
-        Mild edge sharpening
-
-    The TV regularization has been reduced to prevent
-    excessive smoothing of fine dental structures.
-    """
-
     if image.dtype != np.uint8:
-
-        image = normalize_to_uint8(
-            image
-        )
+        image = normalize_to_uint8(image)
 
     # --------------------------------------------------------
-    # Parameters
+    # Published TV-CLAHE parameters
     # --------------------------------------------------------
 
-    tv_clip_limit = 1.5
-    tv_tile_grid = (8, 8)
-
-    # Large-scale illumination correction
-    tv_sigma = 50.0
-
-    # REDUCED FROM 0.10
-    tv_weight = 0.04
-
-    tv_floor = 5.0
-
-    # Number of TV iterations
-    tv_iterations = 15
+    clip_limit = 1.5
+    tile_grid = (8, 8)
+    gaussian_sigma = 50.0
+    intensity_floor = 5.0
+    tv_weight = 0.1
 
     clahe = cv2.createCLAHE(
-        clipLimit=tv_clip_limit,
-        tileGridSize=tv_tile_grid,
+        clipLimit=clip_limit,
+        tileGridSize=tile_grid,
     )
 
     # --------------------------------------------------------
-    # 1. FIRST CLAHE
+    # 1. INITIAL CLAHE
     # --------------------------------------------------------
 
-    first_clahe = clahe.apply(
-        image
-    )
+    clahe_image = clahe.apply(image)
 
     # --------------------------------------------------------
     # 2. SPATIAL NORMALIZATION
     # --------------------------------------------------------
 
-    image_float = first_clahe.astype(
+    image_float = clahe_image.astype(
         np.float32
     )
 
-    blurred = cv2.GaussianBlur(
+    gaussian_image = cv2.GaussianBlur(
         image_float,
         (0, 0),
-        sigmaX=tv_sigma,
-        sigmaY=tv_sigma,
+        sigmaX=gaussian_sigma,
+        sigmaY=gaussian_sigma,
     )
 
     denominator = np.maximum(
-        blurred,
-        tv_floor,
+        gaussian_image,
+        intensity_floor,
     )
 
     normalized = (
@@ -532,20 +497,15 @@ def tv_clahe(image):
     # Normalize to [0, 1]
     # --------------------------------------------------------
 
-    norm_min = float(
-        np.min(normalized)
-    )
+    minimum = normalized.min()
+    maximum = normalized.max()
 
-    norm_max = float(
-        np.max(normalized)
-    )
-
-    if norm_max > norm_min:
+    if maximum > minimum:
 
         normalized = (
-            (normalized - norm_min)
-            /
-            (norm_max - norm_min)
+            normalized - minimum
+        ) / (
+            maximum - minimum
         )
 
     else:
@@ -562,46 +522,34 @@ def tv_clahe(image):
     ).astype(np.float32)
 
     # --------------------------------------------------------
-    # 3. MILD TOTAL VARIATION DENOISING
+    # 3. CHAMBOLLE TOTAL VARIATION
     # --------------------------------------------------------
 
-    tv_denoised = denoise_tv_chambolle(
+    tv_image = denoise_tv_chambolle(
         normalized,
         weight=tv_weight,
-        max_num_iter=tv_iterations,
         channel_axis=None,
     )
 
-    tv_denoised = np.clip(
-        tv_denoised * 255.0,
+    # --------------------------------------------------------
+    # Convert to uint8
+    # --------------------------------------------------------
+
+    tv_image = np.clip(
+        tv_image * 255.0,
         0,
         255,
     ).astype(np.uint8)
 
     # --------------------------------------------------------
-    # 4. SECOND CLAHE
+    # 4. FINAL CLAHE
     # --------------------------------------------------------
 
     final_image = clahe.apply(
-        tv_denoised
-    )
-
-    # --------------------------------------------------------
-    # 5. VERY MILD SHARPENING
-    #
-    # Added only to compensate for the small amount of
-    # smoothing introduced by TV denoising.
-    # --------------------------------------------------------
-
-    final_image = apply_usm(
-        final_image,
-        sigma=0.8,
-        amount=0.35,
-        threshold=3.0,
+        tv_image
     )
 
     return final_image
-
 
 # ============================================================
 # PIPELINE FUNCTIONS
