@@ -1435,7 +1435,8 @@ if st.session_state.dicom is not None:
         st.caption(
             "Η αρχική εικόνα DICOM δεν τροποποιείται. "
             "Η επεξεργασία εφαρμόζεται σε παράγωγη εικόνα."
-        )        dtype=np.float32,
+        ),        dtype=np.float32,
+        )
     finite = np.isfinite(array)
 
     if not np.any(finite):
