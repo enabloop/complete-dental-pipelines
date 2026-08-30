@@ -383,66 +383,6 @@ def apply_usm(
 
 
 # ============================================================
-# CONTROLLED EDGE SHARPENING
-# ============================================================
-
-def apply_edge_sharpening(
-    image,
-    sigma=0.8,
-    amount=1.6,
-    threshold=1.5,
-):
-    """
-    High-frequency detail enhancement.
-
-    Used by Endo Sharp after TV-CLAHE.
-    """
-
-    if image.dtype != np.uint8:
-        image = normalize_to_uint8(
-            image
-        )
-
-    image_float = image.astype(
-        np.float32
-    )
-
-    blurred = cv2.GaussianBlur(
-        image_float,
-        (0, 0),
-        sigmaX=float(sigma),
-        sigmaY=float(sigma),
-    )
-
-    detail = (
-        image_float
-        - blurred
-    )
-
-    threshold = float(
-        threshold
-    )
-
-    if threshold > 0:
-        detail[
-            np.abs(detail)
-            < threshold
-        ] = 0.0
-
-    sharpened = (
-        image_float
-        + float(amount)
-        * detail
-    )
-
-    return np.clip(
-        sharpened,
-        0,
-        255,
-    ).astype(np.uint8)
-
-
-# ============================================================
 # STANDARD CONVOLUTION MASKING
 # ============================================================
 
@@ -527,7 +467,7 @@ def apply_median_filter(
 
 
 # ============================================================
-# TV-CLAHE / ENDO SHARP
+# TV-CLAHE / ENDO SHARP (FIXED BASED ON MDPI 14(15):5554)
 # ============================================================
 
 def tv_clahe(image):
@@ -535,13 +475,9 @@ def tv_clahe(image):
     TV-CLAHE / Endo Sharp.
 
     Pipeline:
-
     1. Initial CLAHE
     2. Large-scale spatial normalization
     3. Total Variation denoising
-    4. Final CLAHE
-    5. Controlled anatomical edge sharpening
-    6. Brightness preservation
     """
 
     if image.dtype != np.uint8:
@@ -550,7 +486,7 @@ def tv_clahe(image):
         )
 
     # --------------------------------------------------------
-    # TV-CLAHE parameters
+    # TV-CLAHE parameters based on MDPI Paper
     # --------------------------------------------------------
 
     clip_limit = 1.5
@@ -559,17 +495,9 @@ def tv_clahe(image):
     gaussian_sigma = 50.0
     intensity_floor = 5.0
 
-    # Mild TV regularization.
-    # Lower value = less smoothing / more detail.
-    tv_weight = 0.03
-
-    # Controlled sharpening.
-    sharpening_sigma = 0.8
-    sharpening_amount = 1.6
-    sharpening_threshold = 1.5
-
-    # Mild brightness compensation.
-    brightness_gain = 1.08
+    # Total Variation denoising weight (Chambolle algorithm).
+    # The paper uses 0.1.
+    tv_weight = 0.1 
 
     clahe = cv2.createCLAHE(
         clipLimit=clip_limit,
@@ -610,7 +538,7 @@ def tv_clahe(image):
     )
 
     # ========================================================
-    # ROBUST NORMALIZATION
+    # ROBUST NORMALIZATION (Rescale for TV filtering)
     # ========================================================
 
     low = np.percentile(
@@ -629,7 +557,6 @@ def tv_clahe(image):
         ) / (
             high - low
         )
-
     else:
         normalized = np.zeros_like(
             normalized,
@@ -652,70 +579,11 @@ def tv_clahe(image):
         channel_axis=None,
     )
 
-    tv_image = np.clip(
+    final_image = np.clip(
         tv_image * 255.0,
         0,
         255,
     ).astype(np.uint8)
-
-    # ========================================================
-    # 4. FINAL CLAHE
-    # ========================================================
-
-    final_image = clahe.apply(
-        tv_image
-    )
-
-    # ========================================================
-    # 5. CONTROLLED EDGE SHARPENING
-    # ========================================================
-
-    final_image = apply_edge_sharpening(
-        final_image,
-        sigma=sharpening_sigma,
-        amount=sharpening_amount,
-        threshold=sharpening_threshold,
-    )
-
-    # ========================================================
-    # 6. BRIGHTNESS PRESERVATION
-    # ========================================================
-
-    original_median = np.median(
-        image.astype(np.float32)
-    )
-
-    processed_median = np.median(
-        final_image.astype(np.float32)
-    )
-
-    if processed_median > 0:
-
-        brightness_ratio = (
-            original_median
-            / processed_median
-        )
-
-        # Avoid extreme brightness corrections.
-        brightness_ratio = np.clip(
-            brightness_ratio,
-            0.95,
-            1.20,
-        )
-
-        final_float = (
-            final_image.astype(
-                np.float32
-            )
-            * brightness_ratio
-            * brightness_gain
-        )
-
-        final_image = np.clip(
-            final_float,
-            0,
-            255,
-        ).astype(np.uint8)
 
     return final_image
 
@@ -733,7 +601,6 @@ def contrast_edge_enhancement(
     threshold,
 ):
     """CLAHE followed by USM."""
-
     enhanced = apply_clahe(
         image,
         clip_limit=clip_limit,
@@ -753,7 +620,6 @@ def spatial_filtering_masking(
     strength,
 ):
     """Standard convolution sharpening."""
-
     return apply_standard_masking(
         image,
         strength=strength,
@@ -765,7 +631,6 @@ def noise_reduction_smoothing(
     kernel_size,
 ):
     """Median noise reduction."""
-
     return apply_median_filter(
         image,
         kernel_size=kernel_size,
@@ -781,7 +646,6 @@ def endo_preset(
     threshold,
 ):
     """Endodontic enhancement preset."""
-
     enhanced = apply_clahe(
         image,
         clip_limit=clip_limit,
@@ -805,7 +669,6 @@ def perio_bone_preset(
     threshold,
 ):
     """Periodontal / bone enhancement preset."""
-
     enhanced = apply_clahe(
         image,
         clip_limit=clip_limit,
@@ -853,9 +716,8 @@ PIPELINE_DESCRIPTIONS = {
     ),
 
     "Endo Sharp": (
-        "TV-CLAHE με Total Variation regularization, "
-        "τοπική αντίθεση και ελεγχόμενη ενίσχυση λεπτομερειών "
-        "για καθαρότερη ενδοδοντική απεικόνιση."
+        "TV-CLAHE με Total Variation denoising και τοπική αντίθεση "
+        "για καθαρότερη ενδοδοντική απεικόνιση (βάσει MDPI JCM 14:15 5554)."
     ),
 }
 
@@ -921,16 +783,9 @@ with st.sidebar:
                 )
 
                 st.session_state.image = image
-
-                st.session_state.filename = (
-                    uploaded_file.name
-                )
-
+                st.session_state.filename = uploaded_file.name
                 st.session_state.dicom = dicom
-
-                st.session_state.file_signature = (
-                    file_signature
-                )
+                st.session_state.file_signature = file_signature
 
                 st.success(
                     f"Loaded: {uploaded_file.name}"
@@ -981,18 +836,12 @@ with st.sidebar:
 
             clahe_clip_limit = st.slider(
                 "CLAHE clip limit",
-                0.1,
-                10.0,
-                2.0,
-                0.1,
+                0.1, 10.0, 2.0, 0.1,
             )
 
             clahe_tile_size = st.slider(
                 "CLAHE tile size",
-                2,
-                32,
-                8,
-                1,
+                2, 32, 8, 1,
             )
 
             st.markdown(
@@ -1001,26 +850,17 @@ with st.sidebar:
 
             usm_sigma = st.slider(
                 "USM Gaussian sigma",
-                0.1,
-                5.0,
-                1.0,
-                0.1,
+                0.1, 5.0, 1.0, 0.1,
             )
 
             usm_amount = st.slider(
                 "USM amount",
-                0.0,
-                5.0,
-                1.0,
-                0.1,
+                0.0, 5.0, 1.0, 0.1,
             )
 
             usm_threshold = st.slider(
                 "USM threshold",
-                0,
-                50,
-                5,
-                1,
+                0, 50, 5, 1,
             )
 
         # ====================================================
@@ -1035,10 +875,7 @@ with st.sidebar:
 
             masking_strength = st.slider(
                 "Masking strength",
-                0.0,
-                2.0,
-                1.0,
-                0.1,
+                0.0, 2.0, 1.0, 0.1,
             )
 
         # ====================================================
@@ -1053,12 +890,7 @@ with st.sidebar:
 
             median_kernel = st.selectbox(
                 "Median kernel",
-                [
-                    3,
-                    5,
-                    7,
-                    9,
-                ],
+                [3, 5, 7, 9],
                 index=0,
             )
 
@@ -1079,19 +911,13 @@ with st.sidebar:
 
             endo_clip_limit = st.slider(
                 "CLAHE clip limit",
-                0.1,
-                10.0,
-                2.0,
-                0.1,
+                0.1, 10.0, 2.0, 0.1,
                 key="endo_clip",
             )
 
             endo_tile_size = st.slider(
                 "CLAHE tile size",
-                2,
-                32,
-                8,
-                1,
+                2, 32, 8, 1,
                 key="endo_tile",
             )
 
@@ -1101,28 +927,19 @@ with st.sidebar:
 
             endo_sigma = st.slider(
                 "USM Gaussian sigma",
-                0.80,
-                1.20,
-                1.00,
-                0.05,
+                0.80, 1.20, 1.00, 0.05,
                 key="endo_sigma",
             )
 
             endo_amount = st.slider(
                 "USM amount",
-                2.00,
-                3.00,
-                2.50,
-                0.05,
+                2.00, 3.00, 2.50, 0.05,
                 key="endo_amount",
             )
 
             endo_threshold = st.slider(
                 "USM threshold",
-                1.00,
-                2.00,
-                1.50,
-                0.05,
+                1.00, 2.00, 1.50, 0.05,
                 key="endo_threshold",
             )
 
@@ -1143,19 +960,13 @@ with st.sidebar:
 
             perio_clip_limit = st.slider(
                 "CLAHE clip limit",
-                0.1,
-                10.0,
-                2.0,
-                0.1,
+                0.1, 10.0, 2.0, 0.1,
                 key="perio_clip",
             )
 
             perio_tile_size = st.slider(
                 "CLAHE tile size",
-                2,
-                32,
-                8,
-                1,
+                2, 32, 8, 1,
                 key="perio_tile",
             )
 
@@ -1165,28 +976,19 @@ with st.sidebar:
 
             perio_sigma = st.slider(
                 "USM Gaussian sigma",
-                1.50,
-                2.00,
-                1.75,
-                0.05,
+                1.50, 2.00, 1.75, 0.05,
                 key="perio_sigma",
             )
 
             perio_amount = st.slider(
                 "USM amount",
-                1.00,
-                1.50,
-                1.25,
-                0.05,
+                1.00, 1.50, 1.25, 0.05,
                 key="perio_amount",
             )
 
             perio_threshold = st.slider(
                 "USM threshold",
-                3.00,
-                4.00,
-                3.50,
-                0.05,
+                3.00, 4.00, 3.50, 0.05,
                 key="perio_threshold",
             )
 
@@ -1197,23 +999,20 @@ with st.sidebar:
         elif pipeline == "Endo Sharp":
 
             st.subheader(
-                "🦷 Endo Sharp"
+                "🦷 Endo Sharp (TV-CLAHE)"
             )
 
             st.caption(
-                "TV-CLAHE + controlled anatomical sharpening"
+                "Based on MDPI JCM 14(15) 5554"
             )
 
             st.info(
-                "CLAHE → Spatial Normalization → "
-                "Mild TV Denoising → CLAHE → "
-                "Controlled Sharpening → Brightness Preservation"
+                "CLAHE → Spatial Normalization → Total Variation Denoising"
             )
 
             st.success(
-                "Η φωτεινότητα διατηρείται κοντά στην αρχική "
-                "εικόνα ενώ ενισχύεται η τοπική αντίθεση "
-                "και η οπτική ευκρίνεια."
+                "Ενισχύει την τοπική αντίθεση και μειώνει τον θόρυβο "
+                "χωρίς να προσθέτει τεχνητές δομές (artifacts)."
             )
 
 
