@@ -85,7 +85,7 @@ def normalize_to_uint8(array):
 
 
 # ============================================================
-# DICOM LOADING
+# DICOM LOADING (ΔΙΟΡΘΩΜΕΝΟ)
 # ============================================================
 
 def load_dicom(file):
@@ -115,9 +115,8 @@ def load_dicom(file):
         ) from error
 
     # --------------------------------------------------------
-    # Multi-frame DICOM
+    # Multi-frame DICOM (ΔΙΟΡΘΩΣΗ: Παίρνουμε το 1ο slice αν είναι 3D)
     # --------------------------------------------------------
-
     if image.ndim > 2:
         image = image[0]
 
@@ -165,67 +164,29 @@ def load_dicom(file):
         )
 
     # --------------------------------------------------------
-    # DICOM window center / width
+    # DICOM window center / width (ΔΙΟΡΘΩΣΗ: Ασφαλής μετατροπή)
     # --------------------------------------------------------
 
-    window_center = getattr(
-        ds,
-        "WindowCenter",
-        None,
-    )
+    window_center = getattr(ds, "WindowCenter", None)
+    window_width = getattr(ds, "WindowWidth", None)
 
-    window_width = getattr(
-        ds,
-        "WindowWidth",
-        None,
-    )
-
-    if (
-        window_center is not None
-        and window_width is not None
-    ):
+    if window_center is not None and window_width is not None:
         try:
-            if hasattr(
-                window_center,
-                "__len__",
-            ):
-                center = float(
-                    window_center[0]
-                )
+            # Έλεγχος αν είναι λίστα/array (συχνό σε DICOM)
+            if hasattr(window_center, "__len__") and not isinstance(window_center, (str, bytes)):
+                center = float(window_center[0])
             else:
-                center = float(
-                    window_center
-                )
+                center = float(window_center)
 
-            if hasattr(
-                window_width,
-                "__len__",
-            ):
-                width_value = float(
-                    window_width[0]
-                )
+            if hasattr(window_width, "__len__") and not isinstance(window_width, (str, bytes)):
+                width_value = float(window_width[0])
             else:
-                width_value = float(
-                    window_width
-                )
+                width_value = float(window_width)
 
             if width_value > 1:
-                low = (
-                    center
-                    - width_value / 2.0
-                )
-
-                high = (
-                    center
-                    + width_value / 2.0
-                )
-
-                image = np.clip(
-                    image,
-                    low,
-                    high,
-                )
-
+                low = center - width_value / 2.0
+                high = center + width_value / 2.0
+                image = np.clip(image, low, high)
         except Exception:
             pass
 
@@ -246,9 +207,8 @@ def load_dicom(file):
 
 def load_regular_image(file):
     """Load PNG/JPEG/TIFF/BMP as grayscale."""
-
+    file.seek(0)
     data = file.read()
-
     image = Image.open(
         io.BytesIO(data)
     ).convert("L")
@@ -273,17 +233,14 @@ def load_image(file):
 
     try:
         file.seek(0)
-
-        return load_regular_image(
-            file
-        )
-
+        return load_regular_image(file)
     except Exception:
-        file.seek(0)
-
-        return load_dicom(
-            file
-        )
+        try:
+            file.seek(0)
+            return load_dicom(file)
+        except Exception as e:
+            st.error(f"Αδυναμία ανάγνωσης του αρχείου: {e}")
+            return None, None
 
 
 # ============================================================
@@ -327,9 +284,6 @@ def apply_clahe(
 # ============================================================
 
 def apply_xray_clahe(image, clip_limit=2.0, tile_size=8):
-    """
-    X-Ray CLAHE adapted as a separate enhancement option.
-    """
     if image.dtype != np.uint8:
         image = normalize_to_uint8(image)
 
@@ -350,7 +304,6 @@ def apply_xray_clahe(image, clip_limit=2.0, tile_size=8):
 
 
 def xray_clahe_pipeline(image, clip_limit=2.0, tile_size=8):
-    """Dedicated X-Ray CLAHE enhancement."""
     return apply_xray_clahe(
         image,
         clip_limit=clip_limit,
@@ -365,10 +318,8 @@ def xray_clahe_pipeline(image, clip_limit=2.0, tile_size=8):
 def apply_anisotropic_diffusion(image, niter=10, kappa=50):
     """
     Apply Anisotropic Diffusion for edge-preserving denoising.
-    Input image will be cast to float32 for processing and returned as uint8.
     """
     img_float = image.astype(np.float32)
-    # MedPy's anisotropic_diffusion filters the image while preserving high gradients (edges)
     img_diffused = anisotropic_diffusion(img_float, niter=niter, kappa=kappa, voxelspacing=None, option=1)
     return np.clip(img_diffused, 0, 255).astype(np.uint8)
 
@@ -399,13 +350,41 @@ if uploaded_file is not None:
     with st.spinner("Φόρτωση εικόνας..."):
         image, metadata = load_image(uploaded_file)
     
-    # Εφαρμογή Αλγορίθμων
-    with st.spinner("Επεξεργασία εικόνας..."):
-        # 1. CLAHE & X-Ray CLAHE
-        img_clahe = apply_clahe(image, clip_limit=clip_limit, tile_size=tile_size)
-        img_xray_clahe = xray_clahe_pipeline(image, clip_limit=clip_limit, tile_size=tile_size)
+    if image is not None:
+        # Εφαρμογή Αλγορίθμων
+        with st.spinner("Επεξεργασία εικόνας..."):
+            img_clahe = apply_clahe(image, clip_limit=clip_limit, tile_size=tile_size)
+            img_xray_clahe = xray_clahe_pipeline(image, clip_limit=clip_limit, tile_size=tile_size)
+            img_denoised = apply_anisotropic_diffusion(image, niter=niter, kappa=kappa)
+            img_combined = apply_clahe(img_denoised, clip_limit=clip_limit, tile_size=tile_size)
         
-        # 2. Anisotropic Diffusion
-        img_denoised = apply_anisotropic_diffusion(image, niter=niter, kappa=kappa)
+        # Προβολή Αποτελεσμάτων σε πλέγμα 2 στηλών
+        col1, col2 = st.columns(2)
         
-        # 3. Combined Pipeline (Denoise + CLAHE)
+        with col1:
+            st.subheader("📷 Αρχική Εικόνα")
+            st.image(image, use_container_width=True)
+            
+            st.subheader("⚡ 1. Standard CLAHE")
+            st.image(img_clahe, use_container_width=True)
+            
+            st.subheader("🚀 2. X-Ray CLAHE")
+            st.image(img_xray_clahe, use_container_width=True)
+
+        with col2:
+            st.subheader("🛡️ 3. Anisotropic Diffusion (Denoised)")
+            st.image(img_denoised, use_container_width=True)
+            st.caption("Αφαίρεση θορύβου διατηρώντας κοφτερές τις ακμές των δοντιών.")
+            
+            st.subheader("🏆 4. Combined (SOTA Pipeline)")
+            st.image(img_combined, use_container_width=True)
+            st.caption("Συνδυασμός: Anisotropic Diffusion για denoise + CLAHE για αντίθεση.")
+            
+            # Εμφάνιση βασικών DICOM Metadata αν υπάρχουν
+            if metadata is not None:
+                st.subheader("📋 DICOM Metadata")
+                st.text(f"Patient Name: {getattr(metadata, 'PatientName', 'N/A')}")
+                st.text(f"Modality: {getattr(metadata, 'Modality', 'N/A')}")
+                st.text(f"Photometric Interpretation: {getattr(metadata, 'PhotometricInterpretation', 'N/A')}")
+else:
+    st.info("💡 Παρακαλώ ανεβάστε ένα αρχείο ακτινογραφίας από το αριστερό μενού για να ξεκινήσει η επεξεργασία.")
