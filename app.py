@@ -323,49 +323,6 @@ def apply_clahe(
 
 
 # ============================================================
-# X-RAY CLAHE
-# ============================================================
-
-def apply_xray_clahe(image, clip_limit=2.0, tile_size=8):
-    """
-    X-Ray CLAHE adapted as a separate enhancement option.
-
-    Keeps the app's original OpenCV CLAHE untouched. This implementation
-    performs CLAHE on a normalized 8-bit grayscale image and uses the
-    tile/grid terminology of the X-ray enhancement approach.
-    """
-    if image.dtype != np.uint8:
-        image = normalize_to_uint8(image)
-
-    tile_size = max(2, int(tile_size))
-    clip_limit = max(0.01, float(clip_limit))
-
-    # Work on a float image normalized to [0, 1], then apply CLAHE.
-    # The separate function allows X-Ray CLAHE to evolve independently
-    # from the app's original CLAHE.
-    normalized = image.astype(np.float32) / 255.0
-    normalized = np.clip(normalized, 0.0, 1.0)
-
-    xray_input = np.round(normalized * 255.0).astype(np.uint8)
-
-    clahe = cv2.createCLAHE(
-        clipLimit=clip_limit,
-        tileGridSize=(tile_size, tile_size),
-    )
-
-    return clahe.apply(xray_input)
-
-
-def xray_clahe_pipeline(image, clip_limit=2.0, tile_size=8):
-    """Dedicated X-Ray CLAHE enhancement."""
-    return apply_xray_clahe(
-        image,
-        clip_limit=clip_limit,
-        tile_size=tile_size,
-    )
-
-
-# ============================================================
 # UNSHARP MASKING
 # ============================================================
 
@@ -510,7 +467,132 @@ def apply_median_filter(
 
 
 # ============================================================
-# TV-CLAHE / ENDO SHARP (FIXED BASED ON MDPI 14(15):5554)
+# ANISOTROPIC DIFFUSION
+# ============================================================
+
+def apply_anisotropic_diffusion(
+    image,
+    iterations=10,
+    kappa=30.0,
+    gamma=0.15,
+):
+    """
+    Anisotropic diffusion using the Perona-Malik approach.
+
+    Reduces noise while preserving important image edges.
+    """
+
+    if image.dtype != np.uint8:
+        image = normalize_to_uint8(
+            image
+        )
+
+    img = image.astype(
+        np.float32
+    )
+
+    iterations = max(
+        1,
+        int(iterations),
+    )
+
+    kappa = max(
+        0.1,
+        float(kappa),
+    )
+
+    gamma = np.clip(
+        float(gamma),
+        0.01,
+        0.25,
+    )
+
+    for _ in range(iterations):
+
+        # ----------------------------------------------------
+        # Calculate directional gradients
+        # ----------------------------------------------------
+
+        north = np.zeros_like(
+            img
+        )
+
+        south = np.zeros_like(
+            img
+        )
+
+        east = np.zeros_like(
+            img
+        )
+
+        west = np.zeros_like(
+            img
+        )
+
+        north[1:, :] = (
+            img[:-1, :]
+            - img[1:, :]
+        )
+
+        south[:-1, :] = (
+            img[1:, :]
+            - img[:-1, :]
+        )
+
+        west[:, 1:] = (
+            img[:, :-1]
+            - img[:, 1:]
+        )
+
+        east[:, :-1] = (
+            img[:, 1:]
+            - img[:, :-1]
+        )
+
+        # ----------------------------------------------------
+        # Perona-Malik conduction coefficients
+        # ----------------------------------------------------
+
+        c_north = np.exp(
+            -(north / kappa) ** 2
+        )
+
+        c_south = np.exp(
+            -(south / kappa) ** 2
+        )
+
+        c_east = np.exp(
+            -(east / kappa) ** 2
+        )
+
+        c_west = np.exp(
+            -(west / kappa) ** 2
+        )
+
+        # ----------------------------------------------------
+        # Diffusion update
+        # ----------------------------------------------------
+
+        img += gamma * (
+            c_north * north
+            + c_south * south
+            + c_east * east
+            + c_west * west
+        )
+
+        img = np.clip(
+            img,
+            0,
+            255,
+        )
+
+    return img.astype(
+        np.uint8
+    )
+
+
+# ============================================================
+# TV-CLAHE / ENDO SHARP
 # ============================================================
 
 def tv_clahe(image):
@@ -529,7 +611,7 @@ def tv_clahe(image):
         )
 
     # --------------------------------------------------------
-    # TV-CLAHE parameters based on MDPI Paper
+    # TV-CLAHE parameters
     # --------------------------------------------------------
 
     clip_limit = 1.5
@@ -538,9 +620,8 @@ def tv_clahe(image):
     gaussian_sigma = 50.0
     intensity_floor = 5.0
 
-    # Total Variation denoising weight (Chambolle algorithm).
-    # The paper uses 0.1.
-    tv_weight = 0.1 
+    # Total Variation denoising weight.
+    tv_weight = 0.1
 
     clahe = cv2.createCLAHE(
         clipLimit=clip_limit,
@@ -581,7 +662,7 @@ def tv_clahe(image):
     )
 
     # ========================================================
-    # ROBUST NORMALIZATION (Rescale for TV filtering)
+    # ROBUST NORMALIZATION
     # ========================================================
 
     low = np.percentile(
@@ -595,12 +676,15 @@ def tv_clahe(image):
     )
 
     if high > low:
+
         normalized = (
             normalized - low
         ) / (
             high - low
         )
+
     else:
+
         normalized = np.zeros_like(
             normalized,
             dtype=np.float32,
@@ -610,7 +694,9 @@ def tv_clahe(image):
         normalized,
         0.0,
         1.0,
-    ).astype(np.float32)
+    ).astype(
+        np.float32
+    )
 
     # ========================================================
     # 3. TOTAL VARIATION DENOISING
@@ -626,7 +712,9 @@ def tv_clahe(image):
         tv_image * 255.0,
         0,
         255,
-    ).astype(np.uint8)
+    ).astype(
+        np.uint8
+    )
 
     return final_image
 
@@ -644,6 +732,7 @@ def contrast_edge_enhancement(
     threshold,
 ):
     """CLAHE followed by USM."""
+
     enhanced = apply_clahe(
         image,
         clip_limit=clip_limit,
@@ -658,11 +747,28 @@ def contrast_edge_enhancement(
     )
 
 
+def anisotropic_diffusion_pipeline(
+    image,
+    iterations,
+    kappa,
+    gamma,
+):
+    """Noise reduction while preserving image edges."""
+
+    return apply_anisotropic_diffusion(
+        image,
+        iterations=iterations,
+        kappa=kappa,
+        gamma=gamma,
+    )
+
+
 def spatial_filtering_masking(
     image,
     strength,
 ):
     """Standard convolution sharpening."""
+
     return apply_standard_masking(
         image,
         strength=strength,
@@ -674,6 +780,7 @@ def noise_reduction_smoothing(
     kernel_size,
 ):
     """Median noise reduction."""
+
     return apply_median_filter(
         image,
         kernel_size=kernel_size,
@@ -689,6 +796,7 @@ def endo_preset(
     threshold,
 ):
     """Endodontic enhancement preset."""
+
     enhanced = apply_clahe(
         image,
         clip_limit=clip_limit,
@@ -712,6 +820,7 @@ def perio_bone_preset(
     threshold,
 ):
     """Periodontal / bone enhancement preset."""
+
     enhanced = apply_clahe(
         image,
         clip_limit=clip_limit,
@@ -737,6 +846,11 @@ PIPELINE_DESCRIPTIONS = {
         "ακμές χρησιμοποιώντας CLAHE και Unsharp Masking."
     ),
 
+    "Anisotropic Diffusion": (
+        "Έξυπνο φιλτράρισμα θορύβου. "
+        "Καθαρίζει την εικόνα κρατώντας τις ακμές."
+    ),
+
     "Spatial Filtering / Masking": (
         "Ενισχύει τις ακμές και τις τοπικές μεταβολές "
         "έντασης μέσω convolution masking."
@@ -760,11 +874,8 @@ PIPELINE_DESCRIPTIONS = {
 
     "Endo Sharp": (
         "TV-CLAHE με Total Variation denoising και τοπική αντίθεση "
-        "για καθαρότερη ενδοδοντική απεικόνιση (βάσει MDPI JCM 14:15 5554)."
-    ),
-    "X-Ray CLAHE": (
-        "Ξεχωριστή εφαρμογή CLAHE για ακτινογραφικές εικόνες, "
-        "διατηρώντας παράλληλα το αρχικό CLAHE της εφαρμογής."
+        "για καθαρότερη ενδοδοντική απεικόνιση "
+        "(βάσει MDPI JCM 14:15 5554)."
     ),
 }
 
@@ -862,12 +973,12 @@ with st.sidebar:
             "Select method:",
             [
                 "Contrast & Edge Enhancement",
+                "Anisotropic Diffusion",
                 "Spatial Filtering / Masking",
                 "Noise Reduction / Smoothing",
                 "Endo Preset",
                 "Perio / Bone Preset",
                 "Endo Sharp",
-                "X-Ray CLAHE",
             ],
             index=0,
         )
@@ -884,12 +995,18 @@ with st.sidebar:
 
             clahe_clip_limit = st.slider(
                 "CLAHE clip limit",
-                0.1, 10.0, 2.0, 0.1,
+                0.1,
+                10.0,
+                2.0,
+                0.1,
             )
 
             clahe_tile_size = st.slider(
                 "CLAHE tile size",
-                2, 32, 8, 1,
+                2,
+                32,
+                8,
+                1,
             )
 
             st.markdown(
@@ -898,17 +1015,67 @@ with st.sidebar:
 
             usm_sigma = st.slider(
                 "USM Gaussian sigma",
-                0.1, 5.0, 1.0, 0.1,
+                0.1,
+                5.0,
+                1.0,
+                0.1,
             )
 
             usm_amount = st.slider(
                 "USM amount",
-                0.0, 5.0, 1.0, 0.1,
+                0.0,
+                5.0,
+                1.0,
+                0.1,
             )
 
             usm_threshold = st.slider(
                 "USM threshold",
-                0, 50, 5, 1,
+                0,
+                50,
+                5,
+                1,
+            )
+
+        # ====================================================
+        # ANISOTROPIC DIFFUSION
+        # ====================================================
+
+        elif pipeline == "Anisotropic Diffusion":
+
+            st.subheader(
+                "🧠 Anisotropic Diffusion"
+            )
+
+            st.caption(
+                "Noise reduction with edge preservation"
+            )
+
+            anisotropic_iterations = st.slider(
+                "Diffusion iterations",
+                1,
+                30,
+                10,
+                1,
+                key="anisotropic_iterations",
+            )
+
+            anisotropic_kappa = st.slider(
+                "Edge sensitivity (κ)",
+                5.0,
+                100.0,
+                30.0,
+                1.0,
+                key="anisotropic_kappa",
+            )
+
+            anisotropic_gamma = st.slider(
+                "Diffusion rate",
+                0.01,
+                0.25,
+                0.15,
+                0.01,
+                key="anisotropic_gamma",
             )
 
         # ====================================================
@@ -923,7 +1090,10 @@ with st.sidebar:
 
             masking_strength = st.slider(
                 "Masking strength",
-                0.0, 2.0, 1.0, 0.1,
+                0.0,
+                2.0,
+                1.0,
+                0.1,
             )
 
         # ====================================================
@@ -959,13 +1129,19 @@ with st.sidebar:
 
             endo_clip_limit = st.slider(
                 "CLAHE clip limit",
-                0.1, 10.0, 2.0, 0.1,
+                0.1,
+                10.0,
+                2.0,
+                0.1,
                 key="endo_clip",
             )
 
             endo_tile_size = st.slider(
                 "CLAHE tile size",
-                2, 32, 8, 1,
+                2,
+                32,
+                8,
+                1,
                 key="endo_tile",
             )
 
@@ -975,19 +1151,28 @@ with st.sidebar:
 
             endo_sigma = st.slider(
                 "USM Gaussian sigma",
-                0.80, 1.20, 1.00, 0.05,
+                0.80,
+                1.20,
+                1.00,
+                0.05,
                 key="endo_sigma",
             )
 
             endo_amount = st.slider(
                 "USM amount",
-                2.00, 3.00, 2.50, 0.05,
+                2.00,
+                3.00,
+                2.50,
+                0.05,
                 key="endo_amount",
             )
 
             endo_threshold = st.slider(
                 "USM threshold",
-                1.00, 2.00, 1.50, 0.05,
+                1.00,
+                2.00,
+                1.50,
+                0.05,
                 key="endo_threshold",
             )
 
@@ -1008,13 +1193,19 @@ with st.sidebar:
 
             perio_clip_limit = st.slider(
                 "CLAHE clip limit",
-                0.1, 10.0, 2.0, 0.1,
+                0.1,
+                10.0,
+                2.0,
+                0.1,
                 key="perio_clip",
             )
 
             perio_tile_size = st.slider(
                 "CLAHE tile size",
-                2, 32, 8, 1,
+                2,
+                32,
+                8,
+                1,
                 key="perio_tile",
             )
 
@@ -1024,19 +1215,28 @@ with st.sidebar:
 
             perio_sigma = st.slider(
                 "USM Gaussian sigma",
-                1.50, 2.00, 1.75, 0.05,
+                1.50,
+                2.00,
+                1.75,
+                0.05,
                 key="perio_sigma",
             )
 
             perio_amount = st.slider(
                 "USM amount",
-                1.00, 1.50, 1.25, 0.05,
+                1.00,
+                1.50,
+                1.25,
+                0.05,
                 key="perio_amount",
             )
 
             perio_threshold = st.slider(
                 "USM threshold",
-                3.00, 4.00, 3.50, 0.05,
+                3.00,
+                4.00,
+                3.50,
+                0.05,
                 key="perio_threshold",
             )
 
@@ -1061,31 +1261,6 @@ with st.sidebar:
             st.success(
                 "Ενισχύει την τοπική αντίθεση και μειώνει τον θόρυβο "
                 "χωρίς να προσθέτει τεχνητές δομές (artifacts)."
-            )
-
-
-# ========================================================
-        # X-RAY CLAHE
-        # ========================================================
-
-        elif pipeline == "X-Ray CLAHE":
-
-            st.subheader("🩻 X-Ray CLAHE")
-
-            st.caption(
-                "Dedicated CLAHE option for X-ray enhancement"
-            )
-
-            xray_clip_limit = st.slider(
-                "X-Ray CLAHE clip limit",
-                0.1, 10.0, 2.0, 0.1,
-                key="xray_clahe_clip",
-            )
-
-            xray_tile_size = st.slider(
-                "X-Ray CLAHE tile size",
-                2, 32, 8, 1,
-                key="xray_clahe_tile",
             )
 
 
@@ -1122,6 +1297,16 @@ if pipeline == "Contrast & Edge Enhancement":
         usm_sigma,
         usm_amount,
         usm_threshold,
+    )
+
+
+elif pipeline == "Anisotropic Diffusion":
+
+    processed = anisotropic_diffusion_pipeline(
+        original,
+        iterations=anisotropic_iterations,
+        kappa=anisotropic_kappa,
+        gamma=anisotropic_gamma,
     )
 
 
@@ -1169,15 +1354,6 @@ elif pipeline == "Endo Sharp":
 
     processed = tv_clahe(
         original
-    )
-
-
-elif pipeline == "X-Ray CLAHE":
-
-    processed = xray_clahe_pipeline(
-        original,
-        clip_limit=xray_clip_limit,
-        tile_size=xray_tile_size,
     )
 
 
