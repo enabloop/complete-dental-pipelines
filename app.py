@@ -15,14 +15,14 @@ from skimage.restoration import denoise_tv_chambolle
 
 st.set_page_config(
     page_title="Dental Image Processor",
-    page_icon="🦷",
+    page_icon="π¦·",
     layout="wide",
 )
 
-st.title("🦷 Dental Image Processor")
+st.title("π¦· Dental Image Processor")
 
 st.caption(
-    "Επεξεργασία και βελτίωση οδοντιατρικών ακτινογραφιών"
+    "ΞΟΞ΅ΞΎΞ΅ΟΞ³Ξ±ΟΞ―Ξ± ΞΊΞ±ΞΉ Ξ²Ξ΅Ξ»ΟΞ―ΟΟΞ· ΞΏΞ΄ΞΏΞ½ΟΞΉΞ±ΟΟΞΉΞΊΟΞ½ Ξ±ΞΊΟΞΉΞ½ΞΏΞ³ΟΞ±ΟΞΉΟΞ½"
 )
 
 
@@ -319,6 +319,49 @@ def apply_clahe(
 
     return clahe.apply(
         image
+    )
+
+
+# ============================================================
+# X-RAY CLAHE
+# ============================================================
+
+def apply_xray_clahe(image, clip_limit=2.0, tile_size=8):
+    """
+    X-Ray CLAHE adapted as a separate enhancement option.
+
+    Keeps the app's original OpenCV CLAHE untouched. This implementation
+    performs CLAHE on a normalized 8-bit grayscale image and uses the
+    tile/grid terminology of the X-ray enhancement approach.
+    """
+    if image.dtype != np.uint8:
+        image = normalize_to_uint8(image)
+
+    tile_size = max(2, int(tile_size))
+    clip_limit = max(0.01, float(clip_limit))
+
+    # Work on a float image normalized to [0, 1], then apply CLAHE.
+    # The separate function allows X-Ray CLAHE to evolve independently
+    # from the app's original CLAHE.
+    normalized = image.astype(np.float32) / 255.0
+    normalized = np.clip(normalized, 0.0, 1.0)
+
+    xray_input = np.round(normalized * 255.0).astype(np.uint8)
+
+    clahe = cv2.createCLAHE(
+        clipLimit=clip_limit,
+        tileGridSize=(tile_size, tile_size),
+    )
+
+    return clahe.apply(xray_input)
+
+
+def xray_clahe_pipeline(image, clip_limit=2.0, tile_size=8):
+    """Dedicated X-Ray CLAHE enhancement."""
+    return apply_xray_clahe(
+        image,
+        clip_limit=clip_limit,
+        tile_size=tile_size,
     )
 
 
@@ -690,34 +733,38 @@ def perio_bone_preset(
 PIPELINE_DESCRIPTIONS = {
 
     "Contrast & Edge Enhancement": (
-        "Ενισχύει την τοπική αντίθεση και τις ανατομικές "
-        "ακμές χρησιμοποιώντας CLAHE και Unsharp Masking."
+        "ΞΞ½ΞΉΟΟΟΞ΅ΞΉ ΟΞ·Ξ½ ΟΞΏΟΞΉΞΊΞ� Ξ±Ξ½ΟΞ―ΞΈΞ΅ΟΞ· ΞΊΞ±ΞΉ ΟΞΉΟ Ξ±Ξ½Ξ±ΟΞΏΞΌΞΉΞΊΞ­Ο "
+        "Ξ±ΞΊΞΌΞ­Ο ΟΟΞ·ΟΞΉΞΌΞΏΟΞΏΞΉΟΞ½ΟΞ±Ο CLAHE ΞΊΞ±ΞΉ Unsharp Masking."
     ),
 
     "Spatial Filtering / Masking": (
-        "Ενισχύει τις ακμές και τις τοπικές μεταβολές "
-        "έντασης μέσω convolution masking."
+        "ΞΞ½ΞΉΟΟΟΞ΅ΞΉ ΟΞΉΟ Ξ±ΞΊΞΌΞ­Ο ΞΊΞ±ΞΉ ΟΞΉΟ ΟΞΏΟΞΉΞΊΞ­Ο ΞΌΞ΅ΟΞ±Ξ²ΞΏΞ»Ξ­Ο "
+        "Ξ­Ξ½ΟΞ±ΟΞ·Ο ΞΌΞ­ΟΟ convolution masking."
     ),
 
     "Noise Reduction / Smoothing": (
-        "Μειώνει μικρό τοπικό θόρυβο και μεμονωμένα "
-        "ακραία pixel χρησιμοποιώντας Median Filter."
+        "ΞΞ΅ΞΉΟΞ½Ξ΅ΞΉ ΞΌΞΉΞΊΟΟ ΟΞΏΟΞΉΞΊΟ ΞΈΟΟΟΞ²ΞΏ ΞΊΞ±ΞΉ ΞΌΞ΅ΞΌΞΏΞ½ΟΞΌΞ­Ξ½Ξ± "
+        "Ξ±ΞΊΟΞ±Ξ―Ξ± pixel ΟΟΞ·ΟΞΉΞΌΞΏΟΞΏΞΉΟΞ½ΟΞ±Ο Median Filter."
     ),
 
     "Endo Preset": (
-        "Ρύθμιση για ενδοδοντική απεικόνιση με στόχο "
-        "την ανάδειξη λεπτών ενδοδοντικών δομών, "
-        "ριζικών σωλήνων και ακρορριζίου."
+        "Ξ‘ΟΞΈΞΌΞΉΟΞ· Ξ³ΞΉΞ± Ξ΅Ξ½Ξ΄ΞΏΞ΄ΞΏΞ½ΟΞΉΞΊΞ� Ξ±ΟΞ΅ΞΉΞΊΟΞ½ΞΉΟΞ· ΞΌΞ΅ ΟΟΟΟΞΏ "
+        "ΟΞ·Ξ½ Ξ±Ξ½Ξ¬Ξ΄Ξ΅ΞΉΞΎΞ· Ξ»Ξ΅ΟΟΟΞ½ Ξ΅Ξ½Ξ΄ΞΏΞ΄ΞΏΞ½ΟΞΉΞΊΟΞ½ Ξ΄ΞΏΞΌΟΞ½, "
+        "ΟΞΉΞΆΞΉΞΊΟΞ½ ΟΟΞ»Ξ�Ξ½ΟΞ½ ΞΊΞ±ΞΉ Ξ±ΞΊΟΞΏΟΟΞΉΞΆΞ―ΞΏΟ."
     ),
 
     "Perio / Bone Preset": (
-        "Ρύθμιση για περιοδοντική και οστική απεικόνιση "
-        "με ελεγχόμενη όξυνση."
+        "Ξ‘ΟΞΈΞΌΞΉΟΞ· Ξ³ΞΉΞ± ΟΞ΅ΟΞΉΞΏΞ΄ΞΏΞ½ΟΞΉΞΊΞ� ΞΊΞ±ΞΉ ΞΏΟΟΞΉΞΊΞ� Ξ±ΟΞ΅ΞΉΞΊΟΞ½ΞΉΟΞ· "
+        "ΞΌΞ΅ Ξ΅Ξ»Ξ΅Ξ³ΟΟΞΌΞ΅Ξ½Ξ· ΟΞΎΟΞ½ΟΞ·."
     ),
 
     "Endo Sharp": (
-        "TV-CLAHE με Total Variation denoising και τοπική αντίθεση "
-        "για καθαρότερη ενδοδοντική απεικόνιση (βάσει MDPI JCM 14:15 5554)."
+        "TV-CLAHE ΞΌΞ΅ Total Variation denoising ΞΊΞ±ΞΉ ΟΞΏΟΞΉΞΊΞ� Ξ±Ξ½ΟΞ―ΞΈΞ΅ΟΞ· "
+        "Ξ³ΞΉΞ± ΞΊΞ±ΞΈΞ±ΟΟΟΞ΅ΟΞ· Ξ΅Ξ½Ξ΄ΞΏΞ΄ΞΏΞ½ΟΞΉΞΊΞ� Ξ±ΟΞ΅ΞΉΞΊΟΞ½ΞΉΟΞ· (Ξ²Ξ¬ΟΞ΅ΞΉ MDPI JCM 14:15 5554)."
+    ),
+    "X-Ray CLAHE": (
+        "ΞΞ΅ΟΟΟΞΉΟΟΞ� Ξ΅ΟΞ±ΟΞΌΞΏΞ³Ξ� CLAHE Ξ³ΞΉΞ± Ξ±ΞΊΟΞΉΞ½ΞΏΞ³ΟΞ±ΟΞΉΞΊΞ­Ο Ξ΅ΞΉΞΊΟΞ½Ξ΅Ο, "
+        "Ξ΄ΞΉΞ±ΟΞ·ΟΟΞ½ΟΞ±Ο ΟΞ±ΟΞ¬Ξ»Ξ»Ξ·Ξ»Ξ± ΟΞΏ Ξ±ΟΟΞΉΞΊΟ CLAHE ΟΞ·Ο Ξ΅ΟΞ±ΟΞΌΞΏΞ³Ξ�Ο."
     ),
 }
 
@@ -745,7 +792,7 @@ if "file_signature" not in st.session_state:
 
 with st.sidebar:
 
-    st.header("📂 Image")
+    st.header("π Image")
 
     uploaded_file = st.file_uploader(
         "Drag & drop dental image",
@@ -809,7 +856,7 @@ with st.sidebar:
 
         st.divider()
 
-        st.header("⚙️ Processing")
+        st.header("βοΈ Processing")
 
         pipeline = st.radio(
             "Select method:",
@@ -820,6 +867,7 @@ with st.sidebar:
                 "Endo Preset",
                 "Perio / Bone Preset",
                 "Endo Sharp",
+                "X-Ray CLAHE",
             ],
             index=0,
         )
@@ -831,7 +879,7 @@ with st.sidebar:
         if pipeline == "Contrast & Edge Enhancement":
 
             st.caption(
-                "CLAHE → Unsharp Masking"
+                "CLAHE β Unsharp Masking"
             )
 
             clahe_clip_limit = st.slider(
@@ -901,12 +949,12 @@ with st.sidebar:
         elif pipeline == "Endo Preset":
 
             st.subheader(
-                "🦷 Endo Preset"
+                "π¦· Endo Preset"
             )
 
             st.info(
-                "Στόχος: ανάδειξη λεπτών ενδοδοντικών "
-                "δομών, ριζικών σωλήνων και ακρορριζίου."
+                "Ξ£ΟΟΟΞΏΟ: Ξ±Ξ½Ξ¬Ξ΄Ξ΅ΞΉΞΎΞ· Ξ»Ξ΅ΟΟΟΞ½ Ξ΅Ξ½Ξ΄ΞΏΞ΄ΞΏΞ½ΟΞΉΞΊΟΞ½ "
+                "Ξ΄ΞΏΞΌΟΞ½, ΟΞΉΞΆΞΉΞΊΟΞ½ ΟΟΞ»Ξ�Ξ½ΟΞ½ ΞΊΞ±ΞΉ Ξ±ΞΊΟΞΏΟΟΞΉΞΆΞ―ΞΏΟ."
             )
 
             endo_clip_limit = st.slider(
@@ -950,12 +998,12 @@ with st.sidebar:
         elif pipeline == "Perio / Bone Preset":
 
             st.subheader(
-                "🦴 Perio / Bone Preset"
+                "π¦΄ Perio / Bone Preset"
             )
 
             st.info(
-                "Στόχος: ανάδειξη της αρχιτεκτονικής "
-                "του οστού και της περιοδοντικής σχισμής."
+                "Ξ£ΟΟΟΞΏΟ: Ξ±Ξ½Ξ¬Ξ΄Ξ΅ΞΉΞΎΞ· ΟΞ·Ο Ξ±ΟΟΞΉΟΞ΅ΞΊΟΞΏΞ½ΞΉΞΊΞ�Ο "
+                "ΟΞΏΟ ΞΏΟΟΞΏΟ ΞΊΞ±ΞΉ ΟΞ·Ο ΟΞ΅ΟΞΉΞΏΞ΄ΞΏΞ½ΟΞΉΞΊΞ�Ο ΟΟΞΉΟΞΌΞ�Ο."
             )
 
             perio_clip_limit = st.slider(
@@ -999,7 +1047,7 @@ with st.sidebar:
         elif pipeline == "Endo Sharp":
 
             st.subheader(
-                "🦷 Endo Sharp (TV-CLAHE)"
+                "π¦· Endo Sharp (TV-CLAHE)"
             )
 
             st.caption(
@@ -1007,12 +1055,37 @@ with st.sidebar:
             )
 
             st.info(
-                "CLAHE → Spatial Normalization → Total Variation Denoising"
+                "CLAHE β Spatial Normalization β Total Variation Denoising"
             )
 
             st.success(
-                "Ενισχύει την τοπική αντίθεση και μειώνει τον θόρυβο "
-                "χωρίς να προσθέτει τεχνητές δομές (artifacts)."
+                "ΞΞ½ΞΉΟΟΟΞ΅ΞΉ ΟΞ·Ξ½ ΟΞΏΟΞΉΞΊΞ� Ξ±Ξ½ΟΞ―ΞΈΞ΅ΟΞ· ΞΊΞ±ΞΉ ΞΌΞ΅ΞΉΟΞ½Ξ΅ΞΉ ΟΞΏΞ½ ΞΈΟΟΟΞ²ΞΏ "
+                "ΟΟΟΞ―Ο Ξ½Ξ± ΟΟΞΏΟΞΈΞ­ΟΞ΅ΞΉ ΟΞ΅ΟΞ½Ξ·ΟΞ­Ο Ξ΄ΞΏΞΌΞ­Ο (artifacts)."
+            )
+
+
+# ========================================================
+        # X-RAY CLAHE
+        # ========================================================
+
+        elif pipeline == "X-Ray CLAHE":
+
+            st.subheader("π©» X-Ray CLAHE")
+
+            st.caption(
+                "Dedicated CLAHE option for X-ray enhancement"
+            )
+
+            xray_clip_limit = st.slider(
+                "X-Ray CLAHE clip limit",
+                0.1, 10.0, 2.0, 0.1,
+                key="xray_clahe_clip",
+            )
+
+            xray_tile_size = st.slider(
+                "X-Ray CLAHE tile size",
+                2, 32, 8, 1,
+                key="xray_clahe_tile",
             )
 
 
@@ -1023,7 +1096,7 @@ with st.sidebar:
 if st.session_state.image is None:
 
     st.info(
-        "👆 Upload a dental image using the sidebar."
+        "π Upload a dental image using the sidebar."
     )
 
     st.stop()
@@ -1096,6 +1169,15 @@ elif pipeline == "Endo Sharp":
 
     processed = tv_clahe(
         original
+    )
+
+
+elif pipeline == "X-Ray CLAHE":
+
+    processed = xray_clahe_pipeline(
+        original,
+        clip_limit=xray_clip_limit,
+        tile_size=xray_tile_size,
     )
 
 
@@ -1245,7 +1327,7 @@ pipeline_filename = (
 )
 
 st.download_button(
-    "⬇️ Download processed image",
+    "β¬οΈ Download processed image",
     output.getvalue(),
     file_name=(
         f"{Path(st.session_state.filename).stem}"
@@ -1264,7 +1346,7 @@ if st.session_state.dicom is not None:
     st.divider()
 
     with st.expander(
-        "🏥 DICOM information"
+        "π₯ DICOM information"
     ):
 
         ds = st.session_state.dicom
@@ -1312,6 +1394,6 @@ if st.session_state.dicom is not None:
         )
 
         st.caption(
-            "Η αρχική εικόνα DICOM δεν τροποποιείται. "
-            "Η επεξεργασία εφαρμόζεται σε παράγωγη εικόνα."
+            "Ξ Ξ±ΟΟΞΉΞΊΞ� Ξ΅ΞΉΞΊΟΞ½Ξ± DICOM Ξ΄Ξ΅Ξ½ ΟΟΞΏΟΞΏΟΞΏΞΉΞ΅Ξ―ΟΞ±ΞΉ. "
+            "Ξ Ξ΅ΟΞ΅ΞΎΞ΅ΟΞ³Ξ±ΟΞ―Ξ± Ξ΅ΟΞ±ΟΞΌΟΞΆΞ΅ΟΞ±ΞΉ ΟΞ΅ ΟΞ±ΟΞ¬Ξ³ΟΞ³Ξ· Ξ΅ΞΉΞΊΟΞ½Ξ±."
         )
