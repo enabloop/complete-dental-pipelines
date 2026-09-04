@@ -15,14 +15,14 @@ from skimage.restoration import denoise_tv_chambolle
 
 st.set_page_config(
     page_title="Dental Image Processor",
-    page_icon="π¦·",
+    page_icon="🦷",
     layout="wide",
 )
 
-st.title("π¦· Dental Image Processor")
+st.title("🦷 Dental Image Processor")
 
 st.caption(
-    "ΞΟΞ΅ΞΎΞ΅ΟΞ³Ξ±ΟΞ―Ξ± ΞΊΞ±ΞΉ Ξ²Ξ΅Ξ»ΟΞ―ΟΟΞ· ΞΏΞ΄ΞΏΞ½ΟΞΉΞ±ΟΟΞΉΞΊΟΞ½ Ξ±ΞΊΟΞΉΞ½ΞΏΞ³ΟΞ±ΟΞΉΟΞ½"
+    "Επεξεργασία και βελτίωση οδοντιατρικών ακτινογραφιών"
 )
 
 
@@ -733,38 +733,38 @@ def perio_bone_preset(
 PIPELINE_DESCRIPTIONS = {
 
     "Contrast & Edge Enhancement": (
-        "ΞΞ½ΞΉΟΟΟΞ΅ΞΉ ΟΞ·Ξ½ ΟΞΏΟΞΉΞΊΞ� Ξ±Ξ½ΟΞ―ΞΈΞ΅ΟΞ· ΞΊΞ±ΞΉ ΟΞΉΟ Ξ±Ξ½Ξ±ΟΞΏΞΌΞΉΞΊΞ­Ο "
-        "Ξ±ΞΊΞΌΞ­Ο ΟΟΞ·ΟΞΉΞΌΞΏΟΞΏΞΉΟΞ½ΟΞ±Ο CLAHE ΞΊΞ±ΞΉ Unsharp Masking."
+        "Ενισχύει την τοπική αντίθεση και τις ανατομικές "
+        "ακμές χρησιμοποιώντας CLAHE και Unsharp Masking."
     ),
 
     "Spatial Filtering / Masking": (
-        "ΞΞ½ΞΉΟΟΟΞ΅ΞΉ ΟΞΉΟ Ξ±ΞΊΞΌΞ­Ο ΞΊΞ±ΞΉ ΟΞΉΟ ΟΞΏΟΞΉΞΊΞ­Ο ΞΌΞ΅ΟΞ±Ξ²ΞΏΞ»Ξ­Ο "
-        "Ξ­Ξ½ΟΞ±ΟΞ·Ο ΞΌΞ­ΟΟ convolution masking."
+        "Ενισχύει τις ακμές και τις τοπικές μεταβολές "
+        "έντασης μέσω convolution masking."
     ),
 
     "Noise Reduction / Smoothing": (
-        "ΞΞ΅ΞΉΟΞ½Ξ΅ΞΉ ΞΌΞΉΞΊΟΟ ΟΞΏΟΞΉΞΊΟ ΞΈΟΟΟΞ²ΞΏ ΞΊΞ±ΞΉ ΞΌΞ΅ΞΌΞΏΞ½ΟΞΌΞ­Ξ½Ξ± "
-        "Ξ±ΞΊΟΞ±Ξ―Ξ± pixel ΟΟΞ·ΟΞΉΞΌΞΏΟΞΏΞΉΟΞ½ΟΞ±Ο Median Filter."
+        "Μειώνει μικρό τοπικό θόρυβο και μεμονωμένα "
+        "ακραία pixel χρησιμοποιώντας Median Filter."
     ),
 
     "Endo Preset": (
-        "Ξ‘ΟΞΈΞΌΞΉΟΞ· Ξ³ΞΉΞ± Ξ΅Ξ½Ξ΄ΞΏΞ΄ΞΏΞ½ΟΞΉΞΊΞ� Ξ±ΟΞ΅ΞΉΞΊΟΞ½ΞΉΟΞ· ΞΌΞ΅ ΟΟΟΟΞΏ "
-        "ΟΞ·Ξ½ Ξ±Ξ½Ξ¬Ξ΄Ξ΅ΞΉΞΎΞ· Ξ»Ξ΅ΟΟΟΞ½ Ξ΅Ξ½Ξ΄ΞΏΞ΄ΞΏΞ½ΟΞΉΞΊΟΞ½ Ξ΄ΞΏΞΌΟΞ½, "
-        "ΟΞΉΞΆΞΉΞΊΟΞ½ ΟΟΞ»Ξ�Ξ½ΟΞ½ ΞΊΞ±ΞΉ Ξ±ΞΊΟΞΏΟΟΞΉΞΆΞ―ΞΏΟ."
+        "Ρύθμιση για ενδοδοντική απεικόνιση με στόχο "
+        "την ανάδειξη λεπτών ενδοδοντικών δομών, "
+        "ριζικών σωλήνων και ακρορριζίου."
     ),
 
     "Perio / Bone Preset": (
-        "Ξ‘ΟΞΈΞΌΞΉΟΞ· Ξ³ΞΉΞ± ΟΞ΅ΟΞΉΞΏΞ΄ΞΏΞ½ΟΞΉΞΊΞ� ΞΊΞ±ΞΉ ΞΏΟΟΞΉΞΊΞ� Ξ±ΟΞ΅ΞΉΞΊΟΞ½ΞΉΟΞ· "
-        "ΞΌΞ΅ Ξ΅Ξ»Ξ΅Ξ³ΟΟΞΌΞ΅Ξ½Ξ· ΟΞΎΟΞ½ΟΞ·."
+        "Ρύθμιση για περιοδοντική και οστική απεικόνιση "
+        "με ελεγχόμενη όξυνση."
     ),
 
     "Endo Sharp": (
-        "TV-CLAHE ΞΌΞ΅ Total Variation denoising ΞΊΞ±ΞΉ ΟΞΏΟΞΉΞΊΞ� Ξ±Ξ½ΟΞ―ΞΈΞ΅ΟΞ· "
-        "Ξ³ΞΉΞ± ΞΊΞ±ΞΈΞ±ΟΟΟΞ΅ΟΞ· Ξ΅Ξ½Ξ΄ΞΏΞ΄ΞΏΞ½ΟΞΉΞΊΞ� Ξ±ΟΞ΅ΞΉΞΊΟΞ½ΞΉΟΞ· (Ξ²Ξ¬ΟΞ΅ΞΉ MDPI JCM 14:15 5554)."
+        "TV-CLAHE με Total Variation denoising και τοπική αντίθεση "
+        "για καθαρότερη ενδοδοντική απεικόνιση (βάσει MDPI JCM 14:15 5554)."
     ),
     "X-Ray CLAHE": (
-        "ΞΞ΅ΟΟΟΞΉΟΟΞ� Ξ΅ΟΞ±ΟΞΌΞΏΞ³Ξ� CLAHE Ξ³ΞΉΞ± Ξ±ΞΊΟΞΉΞ½ΞΏΞ³ΟΞ±ΟΞΉΞΊΞ­Ο Ξ΅ΞΉΞΊΟΞ½Ξ΅Ο, "
-        "Ξ΄ΞΉΞ±ΟΞ·ΟΟΞ½ΟΞ±Ο ΟΞ±ΟΞ¬Ξ»Ξ»Ξ·Ξ»Ξ± ΟΞΏ Ξ±ΟΟΞΉΞΊΟ CLAHE ΟΞ·Ο Ξ΅ΟΞ±ΟΞΌΞΏΞ³Ξ�Ο."
+        "Ξεχωριστή εφαρμογή CLAHE για ακτινογραφικές εικόνες, "
+        "διατηρώντας παράλληλα το αρχικό CLAHE της εφαρμογής."
     ),
 }
 
@@ -792,7 +792,7 @@ if "file_signature" not in st.session_state:
 
 with st.sidebar:
 
-    st.header("π Image")
+    st.header("📂 Image")
 
     uploaded_file = st.file_uploader(
         "Drag & drop dental image",
@@ -856,7 +856,7 @@ with st.sidebar:
 
         st.divider()
 
-        st.header("βοΈ Processing")
+        st.header("⚙️ Processing")
 
         pipeline = st.radio(
             "Select method:",
@@ -879,7 +879,7 @@ with st.sidebar:
         if pipeline == "Contrast & Edge Enhancement":
 
             st.caption(
-                "CLAHE β Unsharp Masking"
+                "CLAHE → Unsharp Masking"
             )
 
             clahe_clip_limit = st.slider(
@@ -949,12 +949,12 @@ with st.sidebar:
         elif pipeline == "Endo Preset":
 
             st.subheader(
-                "π¦· Endo Preset"
+                "🦷 Endo Preset"
             )
 
             st.info(
-                "Ξ£ΟΟΟΞΏΟ: Ξ±Ξ½Ξ¬Ξ΄Ξ΅ΞΉΞΎΞ· Ξ»Ξ΅ΟΟΟΞ½ Ξ΅Ξ½Ξ΄ΞΏΞ΄ΞΏΞ½ΟΞΉΞΊΟΞ½ "
-                "Ξ΄ΞΏΞΌΟΞ½, ΟΞΉΞΆΞΉΞΊΟΞ½ ΟΟΞ»Ξ�Ξ½ΟΞ½ ΞΊΞ±ΞΉ Ξ±ΞΊΟΞΏΟΟΞΉΞΆΞ―ΞΏΟ."
+                "Στόχος: ανάδειξη λεπτών ενδοδοντικών "
+                "δομών, ριζικών σωλήνων και ακρορριζίου."
             )
 
             endo_clip_limit = st.slider(
@@ -998,12 +998,12 @@ with st.sidebar:
         elif pipeline == "Perio / Bone Preset":
 
             st.subheader(
-                "π¦΄ Perio / Bone Preset"
+                "🦴 Perio / Bone Preset"
             )
 
             st.info(
-                "Ξ£ΟΟΟΞΏΟ: Ξ±Ξ½Ξ¬Ξ΄Ξ΅ΞΉΞΎΞ· ΟΞ·Ο Ξ±ΟΟΞΉΟΞ΅ΞΊΟΞΏΞ½ΞΉΞΊΞ�Ο "
-                "ΟΞΏΟ ΞΏΟΟΞΏΟ ΞΊΞ±ΞΉ ΟΞ·Ο ΟΞ΅ΟΞΉΞΏΞ΄ΞΏΞ½ΟΞΉΞΊΞ�Ο ΟΟΞΉΟΞΌΞ�Ο."
+                "Στόχος: ανάδειξη της αρχιτεκτονικής "
+                "του οστού και της περιοδοντικής σχισμής."
             )
 
             perio_clip_limit = st.slider(
@@ -1047,7 +1047,7 @@ with st.sidebar:
         elif pipeline == "Endo Sharp":
 
             st.subheader(
-                "π¦· Endo Sharp (TV-CLAHE)"
+                "🦷 Endo Sharp (TV-CLAHE)"
             )
 
             st.caption(
@@ -1055,12 +1055,12 @@ with st.sidebar:
             )
 
             st.info(
-                "CLAHE β Spatial Normalization β Total Variation Denoising"
+                "CLAHE → Spatial Normalization → Total Variation Denoising"
             )
 
             st.success(
-                "ΞΞ½ΞΉΟΟΟΞ΅ΞΉ ΟΞ·Ξ½ ΟΞΏΟΞΉΞΊΞ� Ξ±Ξ½ΟΞ―ΞΈΞ΅ΟΞ· ΞΊΞ±ΞΉ ΞΌΞ΅ΞΉΟΞ½Ξ΅ΞΉ ΟΞΏΞ½ ΞΈΟΟΟΞ²ΞΏ "
-                "ΟΟΟΞ―Ο Ξ½Ξ± ΟΟΞΏΟΞΈΞ­ΟΞ΅ΞΉ ΟΞ΅ΟΞ½Ξ·ΟΞ­Ο Ξ΄ΞΏΞΌΞ­Ο (artifacts)."
+                "Ενισχύει την τοπική αντίθεση και μειώνει τον θόρυβο "
+                "χωρίς να προσθέτει τεχνητές δομές (artifacts)."
             )
 
 
@@ -1070,7 +1070,7 @@ with st.sidebar:
 
         elif pipeline == "X-Ray CLAHE":
 
-            st.subheader("π©» X-Ray CLAHE")
+            st.subheader("🩻 X-Ray CLAHE")
 
             st.caption(
                 "Dedicated CLAHE option for X-ray enhancement"
@@ -1096,7 +1096,7 @@ with st.sidebar:
 if st.session_state.image is None:
 
     st.info(
-        "π Upload a dental image using the sidebar."
+        "👆 Upload a dental image using the sidebar."
     )
 
     st.stop()
@@ -1327,7 +1327,7 @@ pipeline_filename = (
 )
 
 st.download_button(
-    "β¬οΈ Download processed image",
+    "⬇️ Download processed image",
     output.getvalue(),
     file_name=(
         f"{Path(st.session_state.filename).stem}"
@@ -1346,7 +1346,7 @@ if st.session_state.dicom is not None:
     st.divider()
 
     with st.expander(
-        "π₯ DICOM information"
+        "🏥 DICOM information"
     ):
 
         ds = st.session_state.dicom
@@ -1394,6 +1394,6 @@ if st.session_state.dicom is not None:
         )
 
         st.caption(
-            "Ξ Ξ±ΟΟΞΉΞΊΞ� Ξ΅ΞΉΞΊΟΞ½Ξ± DICOM Ξ΄Ξ΅Ξ½ ΟΟΞΏΟΞΏΟΞΏΞΉΞ΅Ξ―ΟΞ±ΞΉ. "
-            "Ξ Ξ΅ΟΞ΅ΞΎΞ΅ΟΞ³Ξ±ΟΞ―Ξ± Ξ΅ΟΞ±ΟΞΌΟΞΆΞ΅ΟΞ±ΞΉ ΟΞ΅ ΟΞ±ΟΞ¬Ξ³ΟΞ³Ξ· Ξ΅ΞΉΞΊΟΞ½Ξ±."
+            "Η αρχική εικόνα DICOM δεν τροποποιείται. "
+            "Η επεξεργασία εφαρμόζεται σε παράγωγη εικόνα."
         )
