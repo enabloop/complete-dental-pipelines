@@ -7,7 +7,7 @@ import pydicom
 import streamlit as st
 from PIL import Image
 from skimage.restoration import denoise_tv_chambolle
-from medpy.filter.smoothing import anisotropic_diffusion  # <--- Προσθήκη Anisotropic Diffusion
+from medpy.filter.smoothing import anisotropic_diffusion  # <--- Εισαγωγή MedPy για το φίλτρο
 
 # ============================================================
 # PAGE CONFIGURATION
@@ -85,7 +85,7 @@ def normalize_to_uint8(array):
 
 
 # ============================================================
-# DICOM LOADING (ΔΙΟΡΘΩΜΕΝΟ)
+# DICOM LOADING
 # ============================================================
 
 def load_dicom(file):
@@ -115,8 +115,9 @@ def load_dicom(file):
         ) from error
 
     # --------------------------------------------------------
-    # Multi-frame DICOM (ΔΙΟΡΘΩΣΗ: Παίρνουμε το 1ο slice αν είναι 3D)
+    # Multi-frame DICOM
     # --------------------------------------------------------
+
     if image.ndim > 2:
         image = image[0]
 
@@ -164,29 +165,67 @@ def load_dicom(file):
         )
 
     # --------------------------------------------------------
-    # DICOM window center / width (ΔΙΟΡΘΩΣΗ: Ασφαλής μετατροπή)
+    # DICOM window center / width
     # --------------------------------------------------------
 
-    window_center = getattr(ds, "WindowCenter", None)
-    window_width = getattr(ds, "WindowWidth", None)
+    window_center = getattr(
+        ds,
+        "WindowCenter",
+        None,
+    )
 
-    if window_center is not None and window_width is not None:
+    window_width = getattr(
+        ds,
+        "WindowWidth",
+        None,
+    )
+
+    if (
+        window_center is not None
+        and window_width is not None
+    ):
         try:
-            # Έλεγχος αν είναι λίστα/array (συχνό σε DICOM)
-            if hasattr(window_center, "__len__") and not isinstance(window_center, (str, bytes)):
-                center = float(window_center[0])
+            if hasattr(
+                window_center,
+                "__len__",
+            ):
+                center = float(
+                    window_center[0]
+                )
             else:
-                center = float(window_center)
+                center = float(
+                    window_center
+                )
 
-            if hasattr(window_width, "__len__") and not isinstance(window_width, (str, bytes)):
-                width_value = float(window_width[0])
+            if hasattr(
+                window_width,
+                "__len__",
+            ):
+                width_value = float(
+                    window_width[0]
+                )
             else:
-                width_value = float(window_width)
+                width_value = float(
+                    window_width
+                )
 
             if width_value > 1:
-                low = center - width_value / 2.0
-                high = center + width_value / 2.0
-                image = np.clip(image, low, high)
+                low = (
+                    center
+                    - width_value / 2.0
+                )
+
+                high = (
+                    center
+                    + width_value / 2.0
+                )
+
+                image = np.clip(
+                    image,
+                    low,
+                    high,
+                )
+
         except Exception:
             pass
 
@@ -207,8 +246,9 @@ def load_dicom(file):
 
 def load_regular_image(file):
     """Load PNG/JPEG/TIFF/BMP as grayscale."""
-    file.seek(0)
+
     data = file.read()
+
     image = Image.open(
         io.BytesIO(data)
     ).convert("L")
@@ -233,14 +273,17 @@ def load_image(file):
 
     try:
         file.seek(0)
-        return load_regular_image(file)
+
+        return load_regular_image(
+            file
+        )
+
     except Exception:
-        try:
-            file.seek(0)
-            return load_dicom(file)
-        except Exception as e:
-            st.error(f"Αδυναμία ανάγνωσης του αρχείου: {e}")
-            return None, None
+        file.seek(0)
+
+        return load_dicom(
+            file
+        )
 
 
 # ============================================================
@@ -280,38 +323,6 @@ def apply_clahe(
 
 
 # ============================================================
-# X-RAY CLAHE
-# ============================================================
-
-def apply_xray_clahe(image, clip_limit=2.0, tile_size=8):
-    if image.dtype != np.uint8:
-        image = normalize_to_uint8(image)
-
-    tile_size = max(2, int(tile_size))
-    clip_limit = max(0.01, float(clip_limit))
-
-    normalized = image.astype(np.float32) / 255.0
-    normalized = np.clip(normalized, 0.0, 1.0)
-
-    xray_input = np.round(normalized * 255.0).astype(np.uint8)
-
-    clahe = cv2.createCLAHE(
-        clipLimit=clip_limit,
-        tileGridSize=(tile_size, tile_size),
-    )
-
-    return clahe.apply(xray_input)
-
-
-def xray_clahe_pipeline(image, clip_limit=2.0, tile_size=8):
-    return apply_xray_clahe(
-        image,
-        clip_limit=clip_limit,
-        tile_size=tile_size,
-    )
-
-
-# ============================================================
 # ANISOTROPIC DIFFUSION
 # ============================================================
 
@@ -325,7 +336,7 @@ def apply_anisotropic_diffusion(image, niter=10, kappa=50):
 
 
 # ============================================================
-# STREAMLIT UI & PIPELINE EXECUTION
+# STREAMLIT UI & INTERFACE CONTROL
 # ============================================================
 
 st.sidebar.header("📂 Εισαγωγή Αρχείου")
@@ -334,57 +345,59 @@ uploaded_file = st.sidebar.file_uploader(
     type=["dcm", "png", "jpg", "jpeg"]
 )
 
-# Sliders για παραμέτρους
-st.sidebar.header("🎛️ Παράμετροι Επεξεργασίας")
+# Επιλογή Μεθόδου Επεξεργασίας
+st.sidebar.header("🎛️ Επιλογή Μεθόδου")
+processing_mode = st.sidebar.selectbox(
+    "Διαθέσιμοι Αλγόριθμοι:",
+    [
+        "Αρχική Εικόνα",
+        "CLAHE",
+        "Anisotropic Diffusion (Έξυπνο φιλτράρισμα θορύβου)"
+    ]
+)
 
-st.sidebar.subheader("CLAHE Options")
-clip_limit = st.sidebar.slider("Clip Limit", 0.5, 10.0, 2.0, 0.5)
-tile_size = st.sidebar.slider("Tile Size", 2, 32, 8, 2)
+# Δυναμικές ρυθμίσεις ανάλογα με την επιλεγμένη μέθοδο
+if processing_mode == "CLAHE":
+    st.sidebar.subheader("Ρυθμίσεις CLAHE")
+    clip_limit = st.sidebar.slider("Clip Limit", 0.5, 10.0, 2.0, 0.5)
+    tile_size = st.sidebar.slider("Tile Size", 2, 32, 8, 2)
 
-st.sidebar.subheader("Anisotropic Diffusion (SOTA Denoise)")
-niter = st.sidebar.slider("Iterations (Επαναλήψεις)", 1, 30, 10, 1)
-kappa = st.sidebar.slider("Kappa (Όριο Ακμών)", 10, 100, 50, 5)
+elif processing_mode == "Anisotropic Diffusion (Έξυπνο φιλτράρισμα θορύβου)":
+    st.sidebar.subheader("Ρυθμίσεις Φιλτραρίσματος")
+    niter = st.sidebar.slider("Iterations (Επαναλήψεις)", 1, 30, 10, 1)
+    kappa = st.sidebar.slider("Kappa (Όριο Ακμών)", 10, 100, 50, 5)
 
+# Εκτέλεση επεξεργασίας αν έχει ανεβεί αρχείο
 if uploaded_file is not None:
-    # Φόρτωση εικόνας
-    with st.spinner("Φόρτωση εικόνας..."):
-        image, metadata = load_image(uploaded_file)
+    image, metadata = load_image(uploaded_file)
     
-    if image is not None:
-        # Εφαρμογή Αλγορίθμων
-        with st.spinner("Επεξεργασία εικόνας..."):
-            img_clahe = apply_clahe(image, clip_limit=clip_limit, tile_size=tile_size)
-            img_xray_clahe = xray_clahe_pipeline(image, clip_limit=clip_limit, tile_size=tile_size)
-            img_denoised = apply_anisotropic_diffusion(image, niter=niter, kappa=kappa)
-            img_combined = apply_clahe(img_denoised, clip_limit=clip_limit, tile_size=tile_size)
+    # Εφαρμογή της επιλεγμένης μεθόδου
+    if processing_mode == "Αρχική Εικόνα":
+        processed_image = image
+        caption_text = "Ακατέργαστη ψηφιακή λήψη."
         
-        # Προβολή Αποτελεσμάτων σε πλέγμα 2 στηλών
-        col1, col2 = st.columns(2)
+    elif processing_mode == "CLAHE":
+        processed_image = apply_clahe(image, clip_limit=clip_limit, tile_size=tile_size)
+        caption_text = f"Ενισχυμένη αντίθεση (Clip Limit: {clip_limit}, Tile Size: {tile_size})."
         
-        with col1:
-            st.subheader("📷 Αρχική Εικόνα")
-            st.image(image, use_container_width=True)
-            
-            st.subheader("⚡ 1. Standard CLAHE")
-            st.image(img_clahe, use_container_width=True)
-            
-            st.subheader("🚀 2. X-Ray CLAHE")
-            st.image(img_xray_clahe, use_container_width=True)
+    elif processing_mode == "Anisotropic Diffusion (Έξυπνο φιλτράρισμα θορύβου)":
+        processed_image = apply_anisotropic_diffusion(image, niter=niter, kappa=kappa)
+        caption_text = "Καθαρίζει την εικόνα κρατώντας τις ακμές των δοντιών 100% κοφτερές."
 
-        with col2:
-            st.subheader("🛡️ 3. Anisotropic Diffusion (Denoised)")
-            st.image(img_denoised, use_container_width=True)
-            st.caption("Αφαίρεση θορύβου διατηρώντας κοφτερές τις ακμές των δοντιών.")
-            
-            st.subheader("🏆 4. Combined (SOTA Pipeline)")
-            st.image(img_combined, use_container_width=True)
-            st.caption("Συνδυασμός: Anisotropic Diffusion για denoise + CLAHE για αντίθεση.")
-            
-            # Εμφάνιση βασικών DICOM Metadata αν υπάρχουν
-            if metadata is not None:
-                st.subheader("📋 DICOM Metadata")
-                st.text(f"Patient Name: {getattr(metadata, 'PatientName', 'N/A')}")
-                st.text(f"Modality: {getattr(metadata, 'Modality', 'N/A')}")
-                st.text(f"Photometric Interpretation: {getattr(metadata, 'PhotometricInterpretation', 'N/A')}")
-else:
-    st.info("💡 Παρακαλώ ανεβάστε ένα αρχείο ακτινογραφίας από το αριστερό μενού για να ξεκινήσει η επεξεργασία.")
+    # Προβολή Αποτελεσμάτων Side-by-Side
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("📷 Αρχική Ακτινογραφία")
+        st.image(image, use_container_width=True)
+        
+    with col2:
+        st.subheader(f"✨ {processing_mode}")
+        st.image(processed_image, use_container_width=True)
+        st.caption(caption_text)
+        
+    # Εμφάνιση DICOM Metadata αν είναι διαθέσιμα
+    if metadata is not None:
+        with st.expander("📋 Προβολή DICOM Metadata"):
+            st.text(f"Patient Name: {getattr(metadata, 'PatientName', 'N/A')}")
+            st.text(f"Modality: {getattr(metadata, 'Modality', 'N/A')}")
