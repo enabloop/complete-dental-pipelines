@@ -1,6 +1,6 @@
 streamlit
-numpy
 opencv-python-headless
-Pillow
+numpy
 pydicom
+Pillow
 scikit-image
