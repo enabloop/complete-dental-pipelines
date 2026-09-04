@@ -2,5 +2,6 @@ streamlit
 opencv-python-headless
 numpy
 pydicom
-Pillow
 scikit-image
+medpy
+Pillow
