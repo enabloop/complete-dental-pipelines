@@ -4,10 +4,10 @@ from pathlib import Path
 import cv2
 import numpy as np
 import pydicom
-import streamlit as st
+import streamlit st
 from PIL import Image
 from skimage.restoration import denoise_tv_chambolle
-from medpy.filter.smoothing import anisotropic_diffusion  # <--- Εισαγωγή MedPy για το φίλτρο
+from medpy.filter.smoothing import anisotropic_diffusion  # <--- MedPy εισαγωγή
 
 # ============================================================
 # PAGE CONFIGURATION
@@ -115,7 +115,7 @@ def load_dicom(file):
         ) from error
 
     # --------------------------------------------------------
-    # Multi-frame DICOM
+    # Multi-frame DICOM (Διατήρηση 2D δομής για αποφυγή crash)
     # --------------------------------------------------------
 
     if image.ndim > 2:
@@ -336,7 +336,7 @@ def apply_anisotropic_diffusion(image, niter=10, kappa=50):
 
 
 # ============================================================
-# STREAMLIT UI & INTERFACE CONTROL
+# STREAMLIT UI & ORIGINAL DUAL-COLUMN LAYOUT
 # ============================================================
 
 st.sidebar.header("📂 Εισαγωγή Αρχείου")
@@ -345,59 +345,46 @@ uploaded_file = st.sidebar.file_uploader(
     type=["dcm", "png", "jpg", "jpeg"]
 )
 
-# Επιλογή Μεθόδου Επεξεργασίας
-st.sidebar.header("🎛️ Επιλογή Μεθόδου")
-processing_mode = st.sidebar.selectbox(
-    "Διαθέσιμοι Αλγόριθμοι:",
-    [
-        "Αρχική Εικόνα",
-        "CLAHE",
-        "Anisotropic Diffusion (Έξυπνο φιλτράρισμα θορύβου)"
-    ]
-)
+# Sidebar Παράμετροι Αλγορίθμων (Όπως στο αρχικό UI)
+st.sidebar.header("🎛️ Παράμετροι Επεξεργασίας")
 
-# Δυναμικές ρυθμίσεις ανάλογα με την επιλεγμένη μέθοδο
-if processing_mode == "CLAHE":
-    st.sidebar.subheader("Ρυθμίσεις CLAHE")
-    clip_limit = st.sidebar.slider("Clip Limit", 0.5, 10.0, 2.0, 0.5)
-    tile_size = st.sidebar.slider("Tile Size", 2, 32, 8, 2)
+st.sidebar.subheader("Ρυθμίσεις CLAHE")
+clip_limit = st.sidebar.slider("Clip Limit", 0.5, 10.0, 2.0, 0.5)
+tile_size = st.sidebar.slider("Tile Size", 2, 32, 8, 2)
 
-elif processing_mode == "Anisotropic Diffusion (Έξυπνο φιλτράρισμα θορύβου)":
-    st.sidebar.subheader("Ρυθμίσεις Φιλτραρίσματος")
-    niter = st.sidebar.slider("Iterations (Επαναλήψεις)", 1, 30, 10, 1)
-    kappa = st.sidebar.slider("Kappa (Όριο Ακμών)", 10, 100, 50, 5)
+st.sidebar.subheader("Ρυθμίσεις Anisotropic Diffusion")
+niter = st.sidebar.slider("Iterations (Επαναλήψεις)", 1, 30, 10, 1)
+kappa = st.sidebar.slider("Kappa (Όριο Ακμών)", 10, 100, 50, 5)
 
-# Εκτέλεση επεξεργασίας αν έχει ανεβεί αρχείο
 if uploaded_file is not None:
+    # Φόρτωση εικόνας
     image, metadata = load_image(uploaded_file)
     
-    # Εφαρμογή της επιλεγμένης μεθόδου
-    if processing_mode == "Αρχική Εικόνα":
-        processed_image = image
-        caption_text = "Ακατέργαστη ψηφιακή λήψη."
-        
-    elif processing_mode == "CLAHE":
-        processed_image = apply_clahe(image, clip_limit=clip_limit, tile_size=tile_size)
-        caption_text = f"Ενισχυμένη αντίθεση (Clip Limit: {clip_limit}, Tile Size: {tile_size})."
-        
-    elif processing_mode == "Anisotropic Diffusion (Έξυπνο φιλτράρισμα θορύβου)":
-        processed_image = apply_anisotropic_diffusion(image, niter=niter, kappa=kappa)
-        caption_text = "Καθαρίζει την εικόνα κρατώντας τις ακμές των δοντιών 100% κοφτερές."
-
-    # Προβολή Αποτελεσμάτων Side-by-Side
+    # Εκτέλεση επεξεργασίας στο παρασκήνιο
+    img_clahe = apply_clahe(image, clip_limit=clip_limit, tile_size=tile_size)
+    img_denoised = apply_anisotropic_diffusion(image, niter=niter, kappa=kappa)
+    
+    # --- ΠΡΟΒΟΛΗ ΑΠΟΤΕΛΕΣΜΑΤΩΝ (ORIGINAL GRID) ---
     col1, col2 = st.columns(2)
     
     with col1:
-        st.subheader("📷 Αρχική Ακτινογραφία")
+        st.subheader("📷 Αρχική Εικόνα")
         st.image(image, use_container_width=True)
         
+        st.subheader("⚡ 1. CLAHE")
+        st.image(img_clahe, use_container_width=True)
+
     with col2:
-        st.subheader(f"✨ {processing_mode}")
-        st.image(processed_image, use_container_width=True)
-        st.caption(caption_text)
-        
-    # Εμφάνιση DICOM Metadata αν είναι διαθέσιμα
+        st.subheader("🛡️ 2. Anisotropic Diffusion")
+        st.image(img_denoised, use_container_width=True)
+        st.caption("Έξυπνο φιλτράρισμα θορύβου. Καθαρίζει την εικόνα κρατώντας τις ακμές των δοντιών 100% κοφτερές.")
+
+    # Εμφάνιση DICOM Metadata
     if metadata is not None:
-        with st.expander("📋 Προβολή DICOM Metadata"):
-            st.text(f"Patient Name: {getattr(metadata, 'PatientName', 'N/A')}")
-            st.text(f"Modality: {getattr(metadata, 'Modality', 'N/A')}")
+        st.subheader("📋 DICOM Metadata")
+        st.text(f"Patient Name: {getattr(metadata, 'PatientName', 'N/A')}")
+        st.text(f"Modality: {getattr(metadata, 'Modality', 'N/A')}")
+        st.text(f"Photometric Interpretation: {getattr(metadata, 'PhotometricInterpretation', 'N/A')}")
+
+else:
+    st.info("💡 Παρακαλώ ανεβάστε ένα αρχείο ακτινογραφίας από το αριστερό μενού για να ξεκινήσει η επεξεργασία.")
