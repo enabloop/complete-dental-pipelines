@@ -734,7 +734,7 @@ PIPELINE_DESCRIPTIONS = {
 
     "Contrast & Edge Enhancement": (
         "Ενισχύει την τοπική αντίθεση και τις ανατομικές "
-        "ακμές χρησιμοποιώντας CLAHE και Unsharp Masking."
+        "ακμές χρησιμοποιώντας προηγμένους αλγορίθμους."
     ),
 
     "Spatial Filtering / Masking": (
@@ -759,12 +759,11 @@ PIPELINE_DESCRIPTIONS = {
     ),
 
     "Endo Sharp": (
-        "TV-CLAHE με Total Variation denoising και τοπική αντίθεση "
+        "Αλγόριθμος με Total Variation denoising και τοπική αντίθεση "
         "για καθαρότερη ενδοδοντική απεικόνιση (βάσει MDPI JCM 14:15 5554)."
     ),
-    "X-Ray CLAHE": (
-        "Ξεχωριστή εφαρμογή CLAHE για ακτινογραφικές εικόνες, "
-        "διατηρώντας παράλληλα το αρχικό CLAHE της εφαρμογής."
+    "X-Ray preset": (
+        "Ξεχωριστή εφαρμογή για ακτινογραφίες"
     ),
 }
 
