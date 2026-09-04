@@ -1,13 +1,13 @@
-import io
+this is my current code, pls add anisotropic diffusion import io
 from pathlib import Path
 
 import cv2
 import numpy as np
 import pydicom
-import streamlit st
+import streamlit as st
 from PIL import Image
 from skimage.restoration import denoise_tv_chambolle
-from medpy.filter.smoothing import anisotropic_diffusion  # <--- MedPy εισαγωγή
+
 
 # ============================================================
 # PAGE CONFIGURATION
@@ -115,7 +115,7 @@ def load_dicom(file):
         ) from error
 
     # --------------------------------------------------------
-    # Multi-frame DICOM (Διατήρηση 2D δομής για αποφυγή crash)
+    # Multi-frame DICOM
     # --------------------------------------------------------
 
     if image.ndim > 2:
@@ -323,68 +323,46 @@ def apply_clahe(
 
 
 # ============================================================
-# ANISOTROPIC DIFFUSION
+# X-RAY CLAHE
 # ============================================================
 
-def apply_anisotropic_diffusion(image, niter=10, kappa=50):
+def apply_xray_clahe(image, clip_limit=2.0, tile_size=8):
     """
-    Apply Anisotropic Diffusion for edge-preserving denoising.
+    X-Ray CLAHE adapted as a separate enhancement option.
+
+    Keeps the app's original OpenCV CLAHE untouched. This implementation
+    performs CLAHE on a normalized 8-bit grayscale image and uses the
+    tile/grid terminology of the X-ray enhancement approach.
     """
-    img_float = image.astype(np.float32)
-    img_diffused = anisotropic_diffusion(img_float, niter=niter, kappa=kappa, voxelspacing=None, option=1)
-    return np.clip(img_diffused, 0, 255).astype(np.uint8)
+    if image.dtype != np.uint8:
+        image = normalize_to_uint8(image)
+
+    tile_size = max(2, int(tile_size))
+    clip_limit = max(0.01, float(clip_limit))
+
+    # Work on a float image normalized to [0, 1], then apply CLAHE.
+    # The separate function allows X-Ray CLAHE to evolve independently
+    # from the app's original CLAHE.
+    normalized = image.astype(np.float32) / 255.0
+    normalized = np.clip(normalized, 0.0, 1.0)
+
+    xray_input = np.round(normalized * 255.0).astype(np.uint8)
+
+    clahe = cv2.createCLAHE(
+        clipLimit=clip_limit,
+        tileGridSize=(tile_size, tile_size),
+    )
+
+    return clahe.apply(xray_input)
 
 
-# ============================================================
-# STREAMLIT UI & ORIGINAL DUAL-COLUMN LAYOUT
-# ============================================================
+def xray_clahe_pipeline(image, clip_limit=2.0, tile_size=8):
+    """Dedicated X-Ray CLAHE enhancement."""
+    return apply_xray_clahe(
+        image,
+        clip_limit=clip_limit,
+        tile_size=tile_size,
+    )
 
-st.sidebar.header("📂 Εισαγωγή Αρχείου")
-uploaded_file = st.sidebar.file_uploader(
-    "Επιλέξτε ακτινογραφία (DICOM, PNG, JPG)...", 
-    type=["dcm", "png", "jpg", "jpeg"]
-)
 
-# Sidebar Παράμετροι Αλγορίθμων (Όπως στο αρχικό UI)
-st.sidebar.header("🎛️ Παράμετροι Επεξεργασίας")
-
-st.sidebar.subheader("Ρυθμίσεις CLAHE")
-clip_limit = st.sidebar.slider("Clip Limit", 0.5, 10.0, 2.0, 0.5)
-tile_size = st.sidebar.slider("Tile Size", 2, 32, 8, 2)
-
-st.sidebar.subheader("Ρυθμίσεις Anisotropic Diffusion")
-niter = st.sidebar.slider("Iterations (Επαναλήψεις)", 1, 30, 10, 1)
-kappa = st.sidebar.slider("Kappa (Όριο Ακμών)", 10, 100, 50, 5)
-
-if uploaded_file is not None:
-    # Φόρτωση εικόνας
-    image, metadata = load_image(uploaded_file)
-    
-    # Εκτέλεση επεξεργασίας στο παρασκήνιο
-    img_clahe = apply_clahe(image, clip_limit=clip_limit, tile_size=tile_size)
-    img_denoised = apply_anisotropic_diffusion(image, niter=niter, kappa=kappa)
-    
-    # --- ΠΡΟΒΟΛΗ ΑΠΟΤΕΛΕΣΜΑΤΩΝ (ORIGINAL GRID) ---
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("📷 Αρχική Εικόνα")
-        st.image(image, use_container_width=True)
-        
-        st.subheader("⚡ 1. CLAHE")
-        st.image(img_clahe, use_container_width=True)
-
-    with col2:
-        st.subheader("🛡️ 2. Anisotropic Diffusion")
-        st.image(img_denoised, use_container_width=True)
-        st.caption("Έξυπνο φιλτράρισμα θορύβου. Καθαρίζει την εικόνα κρατώντας τις ακμές των δοντιών 100% κοφτερές.")
-
-    # Εμφάνιση DICOM Metadata
-    if metadata is not None:
-        st.subheader("📋 DICOM Metadata")
-        st.text(f"Patient Name: {getattr(metadata, 'PatientName', 'N/A')}")
-        st.text(f"Modality: {getattr(metadata, 'Modality', 'N/A')}")
-        st.text(f"Photometric Interpretation: {getattr(metadata, 'PhotometricInterpretation', 'N/A')}")
-
-else:
-    st.info("💡 Παρακαλώ ανεβάστε ένα αρχείο ακτινογραφίας από το αριστερό μενού για να ξεκινήσει η επεξεργασία.")
+# ===========================================
