@@ -185,6 +185,7 @@ def load_dicom(file):
         and window_width is not None
     ):
         try:
+
             if hasattr(
                 window_center,
                 "__len__",
@@ -210,6 +211,7 @@ def load_dicom(file):
                 )
 
             if width_value > 1:
+
                 low = (
                     center
                     - width_value / 2.0
@@ -272,6 +274,7 @@ def load_image(file):
         return load_dicom(file)
 
     try:
+
         file.seek(0)
 
         return load_regular_image(
@@ -279,6 +282,7 @@ def load_image(file):
         )
 
     except Exception:
+
         file.seek(0)
 
         return load_dicom(
@@ -364,6 +368,7 @@ def apply_usm(
     )
 
     if threshold > 0:
+
         detail[
             np.abs(detail)
             < threshold
@@ -620,7 +625,6 @@ def tv_clahe(image):
     gaussian_sigma = 50.0
     intensity_floor = 5.0
 
-    # Total Variation denoising weight.
     tv_weight = 0.1
 
     clahe = cv2.createCLAHE(
@@ -1078,6 +1082,26 @@ with st.sidebar:
                 key="anisotropic_gamma",
             )
 
+            # ------------------------------------------------
+            # DEDICATED SHARPNESS
+            # ------------------------------------------------
+
+            st.markdown("---")
+            st.markdown("**🔍 Final Sharpness**")
+
+            anisotropic_sharpness = st.slider(
+                "Sharpness",
+                0.0,
+                3.0,
+                0.0,
+                0.1,
+                key="anisotropic_sharpness",
+                help=(
+                    "Applies controlled Unsharp Masking "
+                    "after anisotropic diffusion."
+                ),
+            )
+
         # ====================================================
         # SPATIAL MASKING
         # ====================================================
@@ -1096,6 +1120,26 @@ with st.sidebar:
                 0.1,
             )
 
+            # ------------------------------------------------
+            # DEDICATED SHARPNESS
+            # ------------------------------------------------
+
+            st.markdown("---")
+            st.markdown("**🔍 Final Sharpness**")
+
+            masking_sharpness = st.slider(
+                "Sharpness",
+                0.0,
+                3.0,
+                0.0,
+                0.1,
+                key="masking_sharpness",
+                help=(
+                    "Applies additional controlled Unsharp "
+                    "Masking after spatial filtering."
+                ),
+            )
+
         # ====================================================
         # MEDIAN FILTER
         # ====================================================
@@ -1110,6 +1154,26 @@ with st.sidebar:
                 "Median kernel",
                 [3, 5, 7, 9],
                 index=0,
+            )
+
+            # ------------------------------------------------
+            # DEDICATED SHARPNESS
+            # ------------------------------------------------
+
+            st.markdown("---")
+            st.markdown("**🔍 Final Sharpness**")
+
+            median_sharpness = st.slider(
+                "Sharpness",
+                0.0,
+                3.0,
+                0.0,
+                0.1,
+                key="median_sharpness",
+                help=(
+                    "Applies controlled Unsharp Masking "
+                    "after median noise reduction."
+                ),
             )
 
         # ====================================================
@@ -1255,12 +1319,14 @@ with st.sidebar:
             )
 
             st.info(
-                "CLAHE → Spatial Normalization → Total Variation Denoising"
+                "CLAHE → Spatial Normalization → "
+                "Total Variation Denoising"
             )
 
             st.success(
-                "Ενισχύει την τοπική αντίθεση και μειώνει τον θόρυβο "
-                "χωρίς να προσθέτει τεχνητές δομές (artifacts)."
+                "Ενισχύει την τοπική αντίθεση και μειώνει "
+                "τον θόρυβο χωρίς να προσθέτει τεχνητές "
+                "δομές (artifacts)."
             )
 
 
@@ -1309,6 +1375,19 @@ elif pipeline == "Anisotropic Diffusion":
         gamma=anisotropic_gamma,
     )
 
+    # --------------------------------------------------------
+    # Apply optional final sharpness
+    # --------------------------------------------------------
+
+    if anisotropic_sharpness > 0:
+
+        processed = apply_usm(
+            processed,
+            sigma=1.0,
+            amount=anisotropic_sharpness,
+            threshold=3.0,
+        )
+
 
 elif pipeline == "Spatial Filtering / Masking":
 
@@ -1317,6 +1396,19 @@ elif pipeline == "Spatial Filtering / Masking":
         masking_strength,
     )
 
+    # --------------------------------------------------------
+    # Apply optional final sharpness
+    # --------------------------------------------------------
+
+    if masking_sharpness > 0:
+
+        processed = apply_usm(
+            processed,
+            sigma=1.0,
+            amount=masking_sharpness,
+            threshold=3.0,
+        )
+
 
 elif pipeline == "Noise Reduction / Smoothing":
 
@@ -1324,6 +1416,19 @@ elif pipeline == "Noise Reduction / Smoothing":
         original,
         median_kernel,
     )
+
+    # --------------------------------------------------------
+    # Apply optional final sharpness
+    # --------------------------------------------------------
+
+    if median_sharpness > 0:
+
+        processed = apply_usm(
+            processed,
+            sigma=1.0,
+            amount=median_sharpness,
+            threshold=3.0,
+        )
 
 
 elif pipeline == "Endo Preset":
