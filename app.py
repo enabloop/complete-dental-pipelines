@@ -55,8 +55,13 @@ def normalize_to_uint8(array):
             dtype=np.uint8,
         )
 
-    minimum = np.min(array[finite])
-    maximum = np.max(array[finite])
+    minimum = np.min(
+        array[finite]
+    )
+
+    maximum = np.max(
+        array[finite]
+    )
 
     if maximum <= minimum:
         return np.zeros(
@@ -101,11 +106,13 @@ def load_dicom(file):
     # --------------------------------------------------------
 
     try:
+
         image = ds.pixel_array.astype(
             np.float32
         )
 
     except Exception as error:
+
         raise RuntimeError(
             "This DICOM contains compressed pixel data "
             "that could not be decoded.\n\n"
@@ -159,6 +166,7 @@ def load_dicom(file):
     )
 
     if photometric.upper() == "MONOCHROME1":
+
         image = (
             np.max(image)
             - image
@@ -184,16 +192,20 @@ def load_dicom(file):
         window_center is not None
         and window_width is not None
     ):
+
         try:
 
             if hasattr(
                 window_center,
                 "__len__",
             ):
+
                 center = float(
                     window_center[0]
                 )
+
             else:
+
                 center = float(
                     window_center
                 )
@@ -202,10 +214,13 @@ def load_dicom(file):
                 window_width,
                 "__len__",
             ):
+
                 width_value = float(
                     window_width[0]
                 )
+
             else:
+
                 width_value = float(
                     window_width
                 )
@@ -229,6 +244,7 @@ def load_dicom(file):
                 )
 
         except Exception:
+
             pass
 
     # --------------------------------------------------------
@@ -271,7 +287,10 @@ def load_image(file):
     filename = file.name.lower()
 
     if filename.endswith(".dcm"):
-        return load_dicom(file)
+
+        return load_dicom(
+            file
+        )
 
     try:
 
@@ -302,6 +321,7 @@ def apply_clahe(
     """Apply Contrast Limited Adaptive Histogram Equalization."""
 
     if image.dtype != np.uint8:
+
         image = normalize_to_uint8(
             image
         )
@@ -339,6 +359,7 @@ def apply_usm(
     """Standard Unsharp Masking."""
 
     if image.dtype != np.uint8:
+
         image = normalize_to_uint8(
             image
         )
@@ -388,6 +409,107 @@ def apply_usm(
 
 
 # ============================================================
+# FINAL SHARPNESS CONTROL
+# ============================================================
+
+def apply_final_sharpness(
+    image,
+    sharpness=0.0,
+):
+    """
+    Final user-controlled sharpening.
+
+    0   = no additional sharpening
+    100 = strong sharpening
+
+    The slider controls:
+    - USM amount
+    - Gaussian sigma
+    - sharpening threshold
+    """
+
+    if image.dtype != np.uint8:
+
+        image = normalize_to_uint8(
+            image
+        )
+
+    sharpness = np.clip(
+        float(sharpness),
+        0.0,
+        100.0,
+    )
+
+    # --------------------------------------------------------
+    # No sharpening
+    # --------------------------------------------------------
+
+    if sharpness <= 0:
+
+        return image.copy()
+
+    # --------------------------------------------------------
+    # Convert 0-100 slider into useful USM parameters
+    # --------------------------------------------------------
+
+    normalized_strength = (
+        sharpness / 100.0
+    )
+
+    # Stronger sharpening as slider increases.
+    #
+    # 10%  -> 0.35
+    # 25%  -> 0.875
+    # 50%  -> 1.75
+    # 75%  -> 2.625
+    # 100% -> 3.50
+
+    amount = (
+        normalized_strength
+        * 3.5
+    )
+
+    # Smaller sigma at higher sharpness
+    # emphasizes finer details.
+
+    sigma = (
+        1.5
+        - (
+            normalized_strength
+            * 0.7
+        )
+    )
+
+    sigma = max(
+        0.5,
+        sigma,
+    )
+
+    # Lower threshold at higher sharpness
+    # makes more details respond.
+
+    threshold = (
+        8.0
+        - (
+            normalized_strength
+            * 7.0
+        )
+    )
+
+    threshold = max(
+        0.0,
+        threshold,
+    )
+
+    return apply_usm(
+        image,
+        sigma=sigma,
+        amount=amount,
+        threshold=threshold,
+    )
+
+
+# ============================================================
 # STANDARD CONVOLUTION MASKING
 # ============================================================
 
@@ -398,6 +520,7 @@ def apply_standard_masking(
     """Apply a controlled sharpening convolution."""
 
     if image.dtype != np.uint8:
+
         image = normalize_to_uint8(
             image
         )
@@ -451,6 +574,7 @@ def apply_median_filter(
     """Median filtering for noise reduction."""
 
     if image.dtype != np.uint8:
+
         image = normalize_to_uint8(
             image
         )
@@ -460,9 +584,11 @@ def apply_median_filter(
     )
 
     if kernel_size < 3:
+
         kernel_size = 3
 
     if kernel_size % 2 == 0:
+
         kernel_size += 1
 
     return cv2.medianBlur(
@@ -488,6 +614,7 @@ def apply_anisotropic_diffusion(
     """
 
     if image.dtype != np.uint8:
+
         image = normalize_to_uint8(
             image
         )
@@ -611,6 +738,7 @@ def tv_clahe(image):
     """
 
     if image.dtype != np.uint8:
+
         image = normalize_to_uint8(
             image
         )
@@ -889,15 +1017,19 @@ PIPELINE_DESCRIPTIONS = {
 # ============================================================
 
 if "image" not in st.session_state:
+
     st.session_state.image = None
 
 if "filename" not in st.session_state:
+
     st.session_state.filename = None
 
 if "dicom" not in st.session_state:
+
     st.session_state.dicom = None
 
 if "file_signature" not in st.session_state:
+
     st.session_state.file_signature = None
 
 
@@ -1087,18 +1219,21 @@ with st.sidebar:
             # ------------------------------------------------
 
             st.markdown("---")
-            st.markdown("**🔍 Final Sharpness**")
+
+            st.markdown(
+                "**🔍 Final Sharpness**"
+            )
 
             anisotropic_sharpness = st.slider(
                 "Sharpness",
-                0.0,
-                3.0,
-                0.0,
-                0.1,
+                0,
+                100,
+                0,
+                1,
                 key="anisotropic_sharpness",
                 help=(
-                    "Applies controlled Unsharp Masking "
-                    "after anisotropic diffusion."
+                    "Final sharpening applied after "
+                    "anisotropic diffusion."
                 ),
             )
 
@@ -1125,18 +1260,21 @@ with st.sidebar:
             # ------------------------------------------------
 
             st.markdown("---")
-            st.markdown("**🔍 Final Sharpness**")
+
+            st.markdown(
+                "**🔍 Final Sharpness**"
+            )
 
             masking_sharpness = st.slider(
                 "Sharpness",
-                0.0,
-                3.0,
-                0.0,
-                0.1,
+                0,
+                100,
+                0,
+                1,
                 key="masking_sharpness",
                 help=(
-                    "Applies additional controlled Unsharp "
-                    "Masking after spatial filtering."
+                    "Final sharpening applied after "
+                    "spatial filtering."
                 ),
             )
 
@@ -1161,18 +1299,21 @@ with st.sidebar:
             # ------------------------------------------------
 
             st.markdown("---")
-            st.markdown("**🔍 Final Sharpness**")
+
+            st.markdown(
+                "**🔍 Final Sharpness**"
+            )
 
             median_sharpness = st.slider(
                 "Sharpness",
-                0.0,
-                3.0,
-                0.0,
-                0.1,
+                0,
+                100,
+                0,
+                1,
                 key="median_sharpness",
                 help=(
-                    "Applies controlled Unsharp Masking "
-                    "after median noise reduction."
+                    "Final sharpening applied after "
+                    "median filtering."
                 ),
             )
 
@@ -1376,17 +1517,13 @@ elif pipeline == "Anisotropic Diffusion":
     )
 
     # --------------------------------------------------------
-    # Apply optional final sharpness
+    # Final user-controlled sharpening
     # --------------------------------------------------------
 
-    if anisotropic_sharpness > 0:
-
-        processed = apply_usm(
-            processed,
-            sigma=1.0,
-            amount=anisotropic_sharpness,
-            threshold=3.0,
-        )
+    processed = apply_final_sharpness(
+        processed,
+        anisotropic_sharpness,
+    )
 
 
 elif pipeline == "Spatial Filtering / Masking":
@@ -1397,17 +1534,13 @@ elif pipeline == "Spatial Filtering / Masking":
     )
 
     # --------------------------------------------------------
-    # Apply optional final sharpness
+    # Final user-controlled sharpening
     # --------------------------------------------------------
 
-    if masking_sharpness > 0:
-
-        processed = apply_usm(
-            processed,
-            sigma=1.0,
-            amount=masking_sharpness,
-            threshold=3.0,
-        )
+    processed = apply_final_sharpness(
+        processed,
+        masking_sharpness,
+    )
 
 
 elif pipeline == "Noise Reduction / Smoothing":
@@ -1418,17 +1551,13 @@ elif pipeline == "Noise Reduction / Smoothing":
     )
 
     # --------------------------------------------------------
-    # Apply optional final sharpness
+    # Final user-controlled sharpening
     # --------------------------------------------------------
 
-    if median_sharpness > 0:
-
-        processed = apply_usm(
-            processed,
-            sigma=1.0,
-            amount=median_sharpness,
-            threshold=3.0,
-        )
+    processed = apply_final_sharpness(
+        processed,
+        median_sharpness,
+    )
 
 
 elif pipeline == "Endo Preset":
